@@ -2,36 +2,23 @@ package top.niunaijun.blackbox.core;
 
 import android.content.pm.PackageManager;
 
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 import top.niunaijun.blackbox.BlackBoxCore;
 import top.niunaijun.blackbox.entity.pm.InstallResult;
 
-/**
- * updated by alex5402 on 4/9/21.
- * * ∧＿∧
- * (`･ω･∥
- * 丶　つ０
- * しーＪ
- * TFNQw5HgWUS33Ke1eNmSFTwoQySGU7XNsK (USDT TRC20)
- */
 public class GmsCore {
-    private static final String TAG = "GmsCore";
-
-    private static final HashSet<String> GOOGLE_APP = new HashSet<>();
-    private static final HashSet<String> GOOGLE_SERVICE = new HashSet<>();
     public static final String GMS_PKG = "com.google.android.gms";
     public static final String GSF_PKG = "com.google.android.gsf";
     public static final String VENDING_PKG = "com.android.vending";
 
-    static {
-        GOOGLE_APP.add(VENDING_PKG);
-        GOOGLE_APP.add("com.google.android.play.games");
-        GOOGLE_APP.add("com.google.android.wearable.app");
-        GOOGLE_APP.add("com.google.android.wearable.app.cn");
+    // Keep deterministic order (LinkedHashSet preserves insertion order)
+    private static final Set<String> GOOGLE_SERVICE = new LinkedHashSet<>();
+    private static final Set<String> GOOGLE_APP = new LinkedHashSet<>();
 
-        // GMS must install at first
+    static {
+        // Core services first
         GOOGLE_SERVICE.add(GMS_PKG);
         GOOGLE_SERVICE.add(GSF_PKG);
         GOOGLE_SERVICE.add("com.google.android.gsf.login");
@@ -44,60 +31,114 @@ public class GmsCore {
         GOOGLE_SERVICE.add("com.google.android.partnersetup");
         GOOGLE_SERVICE.add("com.google.android.setupwizard");
         GOOGLE_SERVICE.add("com.google.android.syncadapters.calendar");
+
+        // Then apps
+        GOOGLE_APP.add(VENDING_PKG);
+        GOOGLE_APP.add("com.google.android.play.games");
+        GOOGLE_APP.add("com.google.android.wearable.app");
+        GOOGLE_APP.add("com.google.android.wearable.app.cn");
     }
 
     public static boolean isGoogleService(String packageName) {
         return GOOGLE_SERVICE.contains(packageName);
     }
 
-    public static boolean isGoogleAppOrService(String str) {
-        return GOOGLE_APP.contains(str) || GOOGLE_SERVICE.contains(str);
-    }
-
-    private static InstallResult installPackages(Set<String> list, int userId) {
-        BlackBoxCore blackBoxCore = BlackBoxCore.get();
-        for (String packageName : list) {
-            if (blackBoxCore.isInstalled(packageName, userId)) {
-                continue;
-            }
-            try {
-                BlackBoxCore.getContext().getPackageManager().getApplicationInfo(packageName, 0);
-            } catch (PackageManager.NameNotFoundException e) {
-                // Ignore
-                continue;
-            }
-            InstallResult installResult = blackBoxCore.installPackageAsUser(packageName, userId);
-            if (!installResult.success) {
-                return installResult;
-            }
-        }
-        return new InstallResult();
-    }
-
-    private static void uninstallPackages(Set<String> list, int userId) {
-        BlackBoxCore blackBoxCore = BlackBoxCore.get();
-        for (String packageName : list) {
-            blackBoxCore.uninstallPackageAsUser(packageName, userId);
-        }
+    public static boolean isGoogleAppOrService(String packageName) {
+        return GOOGLE_SERVICE.contains(packageName) || GOOGLE_APP.contains(packageName);
     }
 
     public static InstallResult installGApps(int userId) {
-        Set<String> googleApps = new HashSet<>();
+        // Merge in deterministic order
+        Set<String> ordered = new LinkedHashSet<>();
+        ordered.addAll(GOOGLE_SERVICE);
+        ordered.addAll(GOOGLE_APP);
 
-        googleApps.addAll(GOOGLE_SERVICE);
-        googleApps.addAll(GOOGLE_APP);
-
-        InstallResult installResult = installPackages(googleApps, userId);
-        if (!installResult.success) {
-            uninstallGApps(userId);
-            return installResult;
+        InstallResult result = installPackages(ordered, userId);
+        if (result == null || !result.success) {
+            uninstallGApps(userId); // rollback partial install
+            if (result == null) {
+                InstallResult r = new InstallResult();
+                r.success = false;
+                r.msg = "install failed: unknown error";
+                return r;
+            }
+            return result;
         }
-        return installResult;
+        return result;
+    }
+
+    private static InstallResult installPackages(Set<String> packages, int userId) {
+        BlackBoxCore core = BlackBoxCore.get();
+        PackageManager pm = BlackBoxCore.getContext().getPackageManager();
+
+        int attempted = 0;
+        int installedOrAlready = 0;
+
+        for (String packageName : packages) {
+            // already installed in guest
+            if (core.isInstalled(packageName, userId)) {
+                installedOrAlready++;
+                continue;
+            }
+
+            // must exist on host for clone/install-by-package
+            try {
+                pm.getApplicationInfo(packageName, 0);
+            } catch (PackageManager.NameNotFoundException e) {
+                continue; // skip missing host pkg
+            }
+
+            attempted++;
+            InstallResult one = core.installPackageAsUser(packageName, userId);
+            if (one == null || !one.success) {
+                if (one == null) {
+                    InstallResult r = new InstallResult();
+                    r.success = false;
+                    r.msg = "install returned null for " + packageName;
+                    return r;
+                }
+                if (one.msg == null || one.msg.length() == 0) {
+                    one.msg = "install failed for " + packageName;
+                }
+                return one;
+            }
+
+            if (core.isInstalled(packageName, userId)) {
+                installedOrAlready++;
+            }
+        }
+
+        // hard validation: required trio must be present
+        boolean hasGms = core.isInstalled(GMS_PKG, userId);
+        boolean hasGsf = core.isInstalled(GSF_PKG, userId);
+        boolean hasVending = core.isInstalled(VENDING_PKG, userId);
+
+        if (!hasGms || !hasGsf || !hasVending) {
+            InstallResult fail = new InstallResult();
+            fail.success = false;
+            fail.msg = "Missing required packages after install. "
+                    + "gms=" + hasGms
+                    + ", gsf=" + hasGsf
+                    + ", vending=" + hasVending
+                    + ", attempted=" + attempted
+                    + ", installedOrAlready=" + installedOrAlready;
+            return fail;
+        }
+
+        InstallResult ok = new InstallResult();
+        ok.success = true;
+        ok.msg = "GMS installed";
+        return ok;
     }
 
     public static void uninstallGApps(int userId) {
-        uninstallPackages(GOOGLE_SERVICE, userId);
-        uninstallPackages(GOOGLE_APP, userId);
+        BlackBoxCore core = BlackBoxCore.get();
+        for (String p : GOOGLE_SERVICE) {
+            core.uninstallPackageAsUser(p, userId);
+        }
+        for (String p : GOOGLE_APP) {
+            core.uninstallPackageAsUser(p, userId);
+        }
     }
 
     public static void remove(String packageName) {
@@ -105,14 +146,13 @@ public class GmsCore {
         GOOGLE_APP.remove(packageName);
     }
 
-
     public static boolean isSupportGms() {
         try {
             BlackBoxCore.getPackageManager().getPackageInfo(GMS_PKG, 0);
             return true;
-        } catch (PackageManager.NameNotFoundException ignored) {
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
         }
-        return false;
     }
 
     public static boolean isInstalledGoogleService(int userId) {
