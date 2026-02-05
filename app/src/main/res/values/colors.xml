@@ -16,11 +16,12 @@
     <color name="gold">#D4AF37</color>
 
         <!-- Pick whatever you want; these are safe defaults -->
-        <color name="primary">#B59410</color>
-        <color name="primary_dark">#B59410</color>
-        <color name="primary_light">#B59410</color>
+        <color name="primary">#29b510</color>
+        <color name="primary_dark">#29b510</color>
+        <color name="primary_light">#29b510</color>
         <color name="primary_text">#FFFFFF</color>
     <color name="picker_gold">#D4AF37</color>
+    <color name="black">#000000</color>
     <color name="picker_divider">#33FFFFFF</color>
     <color name="secondary_text">#B3FFFFFF</color>
 

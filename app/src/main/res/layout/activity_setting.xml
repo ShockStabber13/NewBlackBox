@@ -13,6 +13,12 @@
             android:layout_height="wrap_content"
             app:layout_constraintTop_toTopOf="parent" />
 
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#FFFFFF"
+        tools:ignore="MissingConstraints" />
+
     <androidx.fragment.app.FragmentContainerView
             android:id="@+id/fragment"
             android:layout_width="match_parent"
