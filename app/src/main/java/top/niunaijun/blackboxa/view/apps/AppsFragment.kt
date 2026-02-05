@@ -375,18 +375,21 @@ class AppsFragment : Fragment() {
         try {
             viewBinding.stateView.showLoading()
             viewModel.getInstalledApps(userID)
-            viewModel.appsLiveData.observe(viewLifecycleOwner) {
-                try {
-                    if (it != null) {
-                        mAdapter.setItems(it)
-                        if (it.isEmpty()) {
-                            viewBinding.stateView.showEmpty()
-                        } else {
-                            viewBinding.stateView.showContent()
-                        }
+            viewModel.appsLiveData.observe(viewLifecycleOwner) { list ->
+                if (list != null) {
+                    val sorted = list.sortedWith(
+                        compareBy(
+                            { app -> app.name?.trim()?.lowercase() ?: "" },
+                            { app -> app.packageName.lowercase() }
+                        )
+                    )
+                    mAdapter.setItems(sorted)
+
+                    if (sorted.isEmpty()) {
+                        viewBinding.stateView.showEmpty()
+                    } else {
+                        viewBinding.stateView.showContent()
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error observing apps data: ${e.message}")
                 }
             }
 

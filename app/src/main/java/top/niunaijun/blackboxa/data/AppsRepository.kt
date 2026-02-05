@@ -47,10 +47,10 @@ class AppsRepository {
     private fun safeLoadAppIcon(applicationInfo: ApplicationInfo): android.graphics.drawable.Drawable? {
         return try {
             // Check if we should skip icon loading to save memory
-            if (MemoryManager.shouldSkipIconLoading()) {
-                Log.w(TAG, "Memory usage high (${MemoryManager.getMemoryUsagePercentage()}%), skipping icon for ${applicationInfo.packageName}")
-                return null
-            }
+            //if (MemoryManager.shouldSkipIconLoading()) {
+              //  Log.w(TAG, "Memory usage high (${MemoryManager.getMemoryUsagePercentage()}%), skipping icon for ${applicationInfo.packageName}")
+                //return null
+            //}
             
             val icon = BlackBoxCore.getPackageManager().getApplicationIcon(applicationInfo)
             

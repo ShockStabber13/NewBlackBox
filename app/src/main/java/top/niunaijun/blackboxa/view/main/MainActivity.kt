@@ -24,7 +24,7 @@ import top.niunaijun.blackboxa.view.base.LoadingActivity
 import top.niunaijun.blackboxa.view.fake.FakeManagerActivity
 import top.niunaijun.blackboxa.view.list.ListActivity
 import top.niunaijun.blackboxa.view.setting.SettingActivity
-
+import androidx.activity.result.ActivityResultLauncher
 
 class MainActivity : LoadingActivity() {
 
