@@ -66,7 +66,7 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:layout_marginTop="10dp"
-        android:background="@drawable/bg_picker_list_border"
+        android:background="@color/primary"
         android:padding="1dp">
 
         <androidx.recyclerview.widget.RecyclerView

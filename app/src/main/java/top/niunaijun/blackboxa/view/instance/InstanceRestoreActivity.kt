@@ -14,12 +14,15 @@ import top.niunaijun.blackboxa.R
 import top.niunaijun.blackboxa.util.InstanceRestoreUtil
 import top.niunaijun.blackboxa.util.WorkspaceUtil
 import java.io.File
+import top.niunaijun.blackboxa.util.GoldLoadingDialog
 
 class InstanceRestoreActivity : AppCompatActivity() {
 
     private lateinit var tvTitle: TextView
     private lateinit var listView: ListView
     private lateinit var btnRestore: Button
+    private lateinit var loading: GoldLoadingDialog
+
 
     private var selectedIndex = -1
     private var restoreFiles: List<File> = emptyList()
@@ -28,6 +31,7 @@ class InstanceRestoreActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_instance_restore)
+        loading = GoldLoadingDialog(this)
 
         tvTitle = findViewById(R.id.tv_title)
         listView = findViewById(R.id.list_instances)
@@ -48,13 +52,23 @@ class InstanceRestoreActivity : AppCompatActivity() {
             }
 
             val zip = restoreFiles[selectedIndex]
-            try {
-                InstanceRestoreUtil.restoreFromZip(this, zip)
-                Toast.makeText(this, "Restore complete. Restarting app…", Toast.LENGTH_SHORT).show()
-                restartApp()
-            } catch (t: Throwable) {
-                Toast.makeText(this, "Restore failed: ${t.message}", Toast.LENGTH_LONG).show()
-            }
+            loading.show("Restoring instance…")
+
+            Thread {
+                try {
+                    InstanceRestoreUtil.restoreFromZip(this, zip)
+                    runOnUiThread {
+                        loading.dismiss()
+                        Toast.makeText(this, "Restore complete. Restarting app…", Toast.LENGTH_SHORT).show()
+                        restartApp()
+                    }
+                } catch (t: Throwable) {
+                    runOnUiThread {
+                        loading.dismiss()
+                        Toast.makeText(this, "Restore failed: ${t.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }.start()
         }
     }
     private fun restartApp() {

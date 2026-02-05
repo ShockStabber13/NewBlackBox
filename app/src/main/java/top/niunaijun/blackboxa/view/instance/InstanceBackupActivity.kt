@@ -9,24 +9,26 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import top.niunaijun.blackboxa.R
 import java.util.concurrent.Executors
+import top.niunaijun.blackboxa.util.GoldLoadingDialog
 
 class InstanceBackupActivity : AppCompatActivity() {
 
+    private lateinit var loading: GoldLoadingDialog
+
     private lateinit var etName: EditText
     private lateinit var btnBackup: Button
-    private lateinit var tvStatus: TextView
-    private lateinit var progress: ProgressBar
+
 
     private val io = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_instance_backup)
+        loading = GoldLoadingDialog(this)
 
         etName = findViewById(R.id.etBackupName)
         btnBackup = findViewById(R.id.btnDoBackup)
-        tvStatus = findViewById(R.id.tvBackupStatus)
-        progress = findViewById(R.id.pbBackup)
+
 
         btnBackup.setOnClickListener {
             val raw = etName.text?.toString()?.trim().orEmpty()
@@ -41,6 +43,7 @@ class InstanceBackupActivity : AppCompatActivity() {
     }
     private fun startBackup(safeName: String) {
         setBusy(true, getString(R.string.instance_backup_in_progress))
+        loading.show("Backing up instance…")
 
         io.execute {
             try {
@@ -48,11 +51,13 @@ class InstanceBackupActivity : AppCompatActivity() {
 
                 runOnUiThread {
                     setBusy(false, getString(R.string.instance_backup_done))
+                    loading.dismiss()
                     Toast.makeText(
                         this,
                         getString(R.string.instance_backup_done_path, outZip.absolutePath),
                         Toast.LENGTH_LONG
                     ).show()
+
                     finish()
                 }
             } catch (t: Throwable) {
@@ -63,8 +68,11 @@ class InstanceBackupActivity : AppCompatActivity() {
                         getString(R.string.instance_backup_failed, (t.message ?: "unknown error")),
                         Toast.LENGTH_LONG
                     ).show()
+                    loading.dismiss()
+
                 }
             }
+
         }
     }
 
@@ -72,8 +80,7 @@ class InstanceBackupActivity : AppCompatActivity() {
     private fun setBusy(busy: Boolean, status: String) {
         btnBackup.isEnabled = !busy
         etName.isEnabled = !busy
-        progress.visibility = if (busy) ProgressBar.VISIBLE else ProgressBar.GONE
-        tvStatus.text = status
+
     }
 
     private fun sanitizeFileName(input: String): String {

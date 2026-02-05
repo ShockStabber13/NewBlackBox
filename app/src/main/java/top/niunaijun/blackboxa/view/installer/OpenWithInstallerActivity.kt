@@ -9,6 +9,8 @@ import android.widget.Toast
 import top.niunaijun.blackbox.BlackBoxCore
 import java.io.File
 import java.io.FileOutputStream
+import top.niunaijun.blackboxa.util.GoldLoadingDialog
+
 
 /**
  * Entry point for:
@@ -16,6 +18,7 @@ import java.io.FileOutputStream
  *  - Guest launcher icon (no data Uri) -> opens a document picker to choose an APK
  */
 class OpenWithInstallerActivity : Activity() {
+    private lateinit var loading: GoldLoadingDialog
 
     companion object {
         private const val REQ_PICK_APK = 9001
@@ -23,6 +26,8 @@ class OpenWithInstallerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        loading = GoldLoadingDialog(this)
+
 
         val uri = extractApkUri(intent)
         if (uri == null) {
@@ -92,45 +97,48 @@ class OpenWithInstallerActivity : Activity() {
     }
 
     private fun handleInstallFromUri(uri: Uri) {
-        try {
-            // Ensure we can read it now
-            contentResolver.openInputStream(uri)?.close()
+        loading.show("Installing with BlackBox…")
+        Thread {
+            try {
+                contentResolver.openInputStream(uri)?.close()
+                val apkFile = when (uri.scheme) {
+                    ContentResolver.SCHEME_FILE -> File(uri.path ?: "")
+                    else -> copyToCache(uri)
+                }
 
-            // Copy to cache if needed (content:// is common and safer copied locally)
-            val apkFile = when (uri.scheme) {
-                ContentResolver.SCHEME_FILE -> File(uri.path ?: "")
-                ContentResolver.SCHEME_CONTENT -> copyToCache(uri)
-                else -> copyToCache(uri)
+                if (!apkFile.exists() || apkFile.length() <= 0L) {
+                    runOnUiThread { toast("APK copy failed") }
+                    return@Thread
+                }
+
+                val res = BlackBoxCore.get().installPackageAsUser(apkFile, 0)
+                val success = readBoolean(res, "isSuccess")
+                    ?: readBoolean(res, "success")
+                    ?: readInt(res, "result")?.let { it == 0 }
+                    ?: false
+
+                runOnUiThread {
+                    if (success) toast("Installed")
+                    else {
+                        val msg = readString(res, "msg")
+                            ?: readString(res, "message")
+                            ?: readString(res, "error")
+                            ?: res.toString()
+                        toast("Install failed: $msg")
+                    }
+                }
+            } catch (t: Throwable) {
+                runOnUiThread { toast("Install error: ${t.message ?: t.javaClass.simpleName}") }
+            } finally {
+                runOnUiThread {
+                    loading.dismiss()
+
+                    finish()
+                }
             }
-
-            if (!apkFile.exists() || apkFile.length() <= 0L) {
-                toast("APK copy failed")
-                finish()
-                return
-            }
-
-            val res = BlackBoxCore.get().installPackageAsUser(apkFile, 0)
-            // Field names differ across forks; use reflection-safe probing.
-            val success = readBoolean(res, "isSuccess")
-                ?: readBoolean(res, "success")
-                ?: readInt(res, "result")?.let { it == 0 }
-                ?: false
-
-            if (success) {
-                toast("Installed")
-            } else {
-                val msg = readString(res, "msg")
-                    ?: readString(res, "message")
-                    ?: readString(res, "error")
-                    ?: res.toString()
-                toast("Install failed: $msg")
-            }
-        } catch (t: Throwable) {
-            toast("Install error: ${t.message ?: t.javaClass.simpleName}")
-        } finally {
-            finish()
-        }
+        }.start()
     }
+
 
     private fun copyToCache(uri: Uri): File {
         val out = File(cacheDir, "picked-${System.currentTimeMillis()}.apk")
