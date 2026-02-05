@@ -11,6 +11,8 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.Uri;
+import android.content.ClipData;
 import android.content.pm.ActivityInfo;
 import android.os.Build;
 import android.os.Bundle;
@@ -440,18 +442,151 @@ public class BaseInstrumentationDelegate extends Instrumentation {
         return mBaseInstrumentation.getUiAutomation();
     }
 
+
+    /**
+     * Some file managers launch ACTION_VIEW using ClipData-only or EXTRA_STREAM without data/type set.
+     * Inside virtualization hooks, data/type may get dropped, which makes resolution fail with
+     * ActivityNotFoundException. Normalize the intent so the framework can resolve it.
+     */
+    private static Intent normalizeViewIntent(Context context, Intent intent) {
+        if (intent == null) return null;
+        try {
+            if (Intent.ACTION_VIEW.equals(intent.getAction())) {
+                Uri data = intent.getData();
+                if (data == null) {
+                    ClipData cd = intent.getClipData();
+                    if (cd != null && cd.getItemCount() > 0) {
+                        Uri u = cd.getItemAt(0).getUri();
+                        if (u != null) data = u;
+                    }
+                    if (data == null) {
+                        try {
+                            Object extra = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+                            if (extra instanceof Uri) data = (Uri) extra;
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                    if (data != null) {
+                        intent.setData(data);
+                    }
+                }
+
+                if (data != null) {
+                    // Ensure type is set if possible (helps resolver match).
+                    String type = intent.getType();
+                    if (type == null) {
+                        try {
+                            type = context.getContentResolver().getType(data);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                    if (type != null) {
+                        // setDataAndType keeps both consistent
+                        intent.setDataAndType(data, type);
+                    }
+
+                    // Ensure ClipData exists for UriGrants on newer Android versions.
+                    if (intent.getClipData() == null) {
+                        try {
+                            intent.setClipData(ClipData.newRawUri("data", data));
+                        } catch (Throwable ignored) {
+                        }
+                    }
+
+                    // Always include grant flags when sharing content Uris.
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                            | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return intent;
+    }
+
+
+
+private static android.content.ActivityNotFoundException findActivityNotFound(Throwable t) {
+    Throwable cur = t;
+    while (cur != null) {
+        if (cur instanceof android.content.ActivityNotFoundException) {
+            return (android.content.ActivityNotFoundException) cur;
+        }
+        cur = cur.getCause();
+    }
+    return null;
+}
+
+private static Intent tryRecoverViewIntent(Intent intent) {
+    if (intent == null) return null;
+    if (!Intent.ACTION_VIEW.equals(intent.getAction())) return intent;
+    if (intent.getData() != null) return intent;
+
+    // Try common extras used by apps when launching a browser/share target.
+    String[] keys = new String[] {
+            Intent.EXTRA_TEXT,
+            Intent.EXTRA_SUBJECT,
+            "url",
+            "uri",
+            "android.intent.extra.URL",
+            "android.intent.extra.URI"
+    };
+    for (String k : keys) {
+        try {
+            String v = intent.getStringExtra(k);
+            if (v == null) continue;
+            v = v.trim();
+            if (v.isEmpty()) continue;
+
+            // If it looks like a URL but missing scheme, assume https.
+            if (v.startsWith("www.")) v = "https://" + v;
+            if (v.startsWith("http://") || v.startsWith("https://") || v.startsWith("content://") || v.startsWith("file://") || v.startsWith("market://")) {
+                intent.setData(android.net.Uri.parse(v));
+                return intent;
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+    return intent;
+}
+
     public ActivityResult execStartActivity(Context context, IBinder binder, IBinder binder1, Activity activity, Intent intent, int i, Bundle bundle) throws Throwable {
-        return invokeExecStartActivity(mBaseInstrumentation,
+        Intent fixedIntent = normalizeViewIntent(context, intent);
+        try {
+            return invokeExecStartActivity(mBaseInstrumentation,
                 Context.class,
                 IBinder.class,
                 IBinder.class,
                 Activity.class,
                 Intent.class,
                 Integer.TYPE,
-                Bundle.class).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, activity, intent, i, bundle});
+                Bundle.class).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, activity, fixedIntent, i, bundle});
+        } catch (Throwable t) {
+            android.content.ActivityNotFoundException anf = findActivityNotFound(t);
+            if (anf != null) {
+                // Recover missing VIEW Uri from extras if possible, then retry.
+                tryRecoverViewIntent(fixedIntent);
+                try {
+                    return invokeExecStartActivity(mBaseInstrumentation,
+                Context.class,
+                IBinder.class,
+                IBinder.class,
+                Activity.class,
+                Intent.class,
+                Integer.TYPE,
+                Bundle.class).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, activity, fixedIntent, i, bundle});
+                } catch (Throwable ignored) {
+                }
+                // Last resort: don't crash the guest; just no-op.
+                return null;
+            }
+            throw t;
+        }
     }
 
     public ActivityResult execStartActivity(Context context, IBinder binder, IBinder binder1, String str, Intent intent, int i, Bundle bundle) throws Throwable {
+        Intent fixedIntent = normalizeViewIntent(context, intent);
         return invokeExecStartActivity(mBaseInstrumentation,
                 Context.class,
                 IBinder.class,
@@ -459,30 +594,54 @@ public class BaseInstrumentationDelegate extends Instrumentation {
                 String.class,
                 Intent.class,
                 Integer.TYPE,
-                Bundle.class).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, str, intent, i, bundle});
+                Bundle.class).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, str, fixedIntent, i, bundle});
     }
 
     public ActivityResult execStartActivity(Context context, IBinder binder, IBinder binder1, Fragment fragment, Intent intent, int i) throws Throwable {
-        return invokeExecStartActivity(mBaseInstrumentation,
+        Intent fixedIntent = normalizeViewIntent(context, intent);
+        try {
+            return invokeExecStartActivity(mBaseInstrumentation,
                 Context.class,
                 IBinder.class,
                 IBinder.class,
                 Fragment.class,
                 Intent.class,
-                Integer.TYPE).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, fragment, intent, i});
+                Integer.TYPE).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, fragment, fixedIntent, i});
+        } catch (Throwable t) {
+            android.content.ActivityNotFoundException anf = findActivityNotFound(t);
+            if (anf != null) {
+                // Recover missing VIEW Uri from extras if possible, then retry.
+                tryRecoverViewIntent(fixedIntent);
+                try {
+                    return invokeExecStartActivity(mBaseInstrumentation,
+                Context.class,
+                IBinder.class,
+                IBinder.class,
+                Fragment.class,
+                Intent.class,
+                Integer.TYPE).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, fragment, fixedIntent, i});
+                } catch (Throwable ignored) {
+                }
+                // Last resort: don't crash the guest; just no-op.
+                return null;
+            }
+            throw t;
+        }
     }
 
     public ActivityResult execStartActivity(Context context, IBinder binder, IBinder binder1, Activity activity, Intent intent, int i) throws Throwable {
+        Intent fixedIntent = normalizeViewIntent(context, intent);
         return invokeExecStartActivity(mBaseInstrumentation,
                 Context.class,
                 IBinder.class,
                 IBinder.class,
                 Activity.class,
                 Intent.class,
-                Integer.TYPE).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, activity, intent, i});
+                Integer.TYPE).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, activity, fixedIntent, i});
     }
 
     public ActivityResult execStartActivity(Context context, IBinder binder, IBinder binder1, Fragment fragment, Intent intent, int i, Bundle bundle) throws Throwable {
+        Intent fixedIntent = normalizeViewIntent(context, intent);
         return invokeExecStartActivity(mBaseInstrumentation,
                 Context.class,
                 IBinder.class,
@@ -490,11 +649,12 @@ public class BaseInstrumentationDelegate extends Instrumentation {
                 Fragment.class,
                 Intent.class,
                 Integer.TYPE,
-                Bundle.class).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, fragment, intent, i, bundle});
+                Bundle.class).callByCaller(mBaseInstrumentation, new Object[]{context, binder, binder1, fragment, fixedIntent, i, bundle});
     }
 
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
     public ActivityResult execStartActivity(Context context, IBinder iBinder, IBinder iBinder2, Activity activity, Intent intent, int i, Bundle bundle, UserHandle userHandle) throws Throwable {
+        Intent fixedIntent = normalizeViewIntent(context, intent);
         return invokeExecStartActivity(mBaseInstrumentation,
                 Context.class,
                 IBinder.class,
@@ -503,7 +663,7 @@ public class BaseInstrumentationDelegate extends Instrumentation {
                 Intent.class,
                 Integer.TYPE,
                 Bundle.class,
-                UserHandle.class).callByCaller(mBaseInstrumentation, new Object[]{context, iBinder, iBinder2, activity, intent, i, bundle, userHandle});
+                UserHandle.class).callByCaller(mBaseInstrumentation, new Object[]{context, iBinder, iBinder2, activity, fixedIntent, i, bundle, userHandle});
     }
 
     private static Reflector invokeExecStartActivity(Object obj, Class<?>... args) throws NoSuchMethodException {

@@ -515,6 +515,12 @@
                 android:resource="@xml/filepath" />
         </provider>
 
+<provider
+    android:name=".fake.provider.FileProxyProvider"
+    android:authorities="${applicationId}.blackbox.FileProxy"
+    android:exported="true"
+    android:grantUriPermissions="true" />
+
         <receiver
             android:name=".proxy.ProxyBroadcastReceiver"
             android:enabled="true"

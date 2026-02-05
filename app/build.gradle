@@ -82,6 +82,9 @@ dependencies {
     implementation 'com.afollestad.material-dialogs:core:3.3.0'
     implementation 'com.afollestad.material-dialogs:input:3.3.0'
 
+    // TAR/TAR.GZ backup & restore support
+    implementation 'org.apache.commons:commons-compress:1.26.1'
+
 
 
 

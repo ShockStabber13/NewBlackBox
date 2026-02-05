@@ -47,7 +47,7 @@ public class IAttributionSourceProxy extends ClassInvocationStub {
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
             try {
                 // Always create AttributionSource with correct UID to prevent crashes
-                int uid = BActivityThread.getBUid();
+                int uid = android.os.Process.myUid();
                 String packageName = BlackBoxCore.getHostPkg();
                 
                 Slog.d(TAG, "Creating AttributionSource with UID: " + uid + ", package: " + packageName);
@@ -62,7 +62,7 @@ public class IAttributionSourceProxy extends ClassInvocationStub {
                 return method.invoke(who, args);
             } catch (Exception e) {
                 Slog.w(TAG, "Error creating AttributionSource, using fallback: " + e.getMessage());
-                return createSafeAttributionSource(BActivityThread.getBUid(), BlackBoxCore.getHostPkg());
+                return createSafeAttributionSource(android.os.Process.myUid(), BlackBoxCore.getHostPkg());
             }
         }
         
@@ -153,10 +153,10 @@ public class IAttributionSourceProxy extends ClassInvocationStub {
                 }
                 
                 // If original method fails, create a safe fallback
-                return createSafeAttributionSource(BActivityThread.getBUid(), BlackBoxCore.getHostPkg());
+                return createSafeAttributionSource(android.os.Process.myUid(), BlackBoxCore.getHostPkg());
             } catch (Exception e) {
                 Slog.w(TAG, "Error in fromParcel, using fallback: " + e.getMessage());
-                return createSafeAttributionSource(BActivityThread.getBUid(), BlackBoxCore.getHostPkg());
+                return createSafeAttributionSource(android.os.Process.myUid(), BlackBoxCore.getHostPkg());
             }
         }
         
@@ -166,9 +166,9 @@ public class IAttributionSourceProxy extends ClassInvocationStub {
                 Class<?> attributionSourceClass = attributionSource.getClass();
                 Method setUidMethod = attributionSourceClass.getDeclaredMethod("setUid", int.class);
                 setUidMethod.setAccessible(true);
-                setUidMethod.invoke(attributionSource, BActivityThread.getBUid());
+                setUidMethod.invoke(attributionSource, android.os.Process.myUid());
                 
-                Slog.d(TAG, "Fixed AttributionSource UID to: " + BActivityThread.getBUid());
+                Slog.d(TAG, "Fixed AttributionSource UID to: " + android.os.Process.myUid());
             } catch (Exception e) {
                 Slog.w(TAG, "Could not fix AttributionSource UID: " + e.getMessage());
             }

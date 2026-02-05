@@ -220,17 +220,7 @@ class AppsFragment : Fragment() {
                         }
                         
                         MotionEvent.ACTION_UP -> {
-                            val scrollDuration = System.currentTimeMillis() - scrollStartTime
-                            
-                            // Only show popup if it wasn't a scroll gesture
-                            if (!isScrolling && !isMove(point, e) && scrollDuration < 500) {
-                                try {
-                                    popupMenu?.show()
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Error showing popup menu: ${e.message}")
-                                }
-                            }
-                            
+                            // Always clear any pending popup tracking on finger up.
                             popupMenu = null
                             point.set(0, 0)
                             isScrolling = false
@@ -241,13 +231,10 @@ class AppsFragment : Fragment() {
                                 point.x = e.rawX.toInt()
                                 point.y = e.rawY.toInt()
                             }
-                            
-                            // Check if this is a scroll gesture
+                            // Detect scroll gesture
                             if (isMove(point, e)) {
                                 isScrolling = true
-                                popupMenu?.dismiss()
                             }
-                            
                             // Handle float button visibility
                             isDownAndUp(point, e)
                         }

@@ -63,4 +63,49 @@
     <string name="disable_gms">Disable Service</string>
     <string name="disable_gms_hint">Clear the current Google service environment? Google service data will be cleared.</string>
     <string name="no_gms">Currently, there is no Google service environment on mobile phones.</string>
+
+    <string name="share_host_sdcard" translatable="false">Share host storage (/sdcard)</string>
+    <string name="share_host_sdcard_summary" translatable="false">Map virtual apps /sdcard to the real host /sdcard instead of the virtual external folder (requires All files access on Android 11+).</string>
+    <string name="grant_all_files_access" translatable="false">Grant All files access</string>
+    <string name="grant_all_files_access_summary" translatable="false">Open the system settings page to grant this app "All files access" so virtual apps can read/write the host storage.</string>
+
+
+    <string name="instances" translatable="false">Instances</string>
+
+    <string name="instance_incompatible" translatable="false">Incompatible instance</string>
+
+    <string name="restore_instance_confirm" translatable="false">Restore this instance?</string>
+    <string name="instance_restored" translatable="false">Instance restored</string>
+
+    <string name="delete_instance" translatable="false">Delete instance</string>
+    <string name="delete_instance_confirm" translatable="false">Delete this instance?</string>
+    <string name="deleted" translatable="false">Deleted</string>
+    <string name="delete_failed" translatable="false">Delete failed</string>
+
+    <string name="instance_name_hint" translatable="false">Instance name</string>
+    <string name="instance_saved" translatable="false">Instance saved</string>
+
+    <string name="workspace_not_set_instances" translatable="false">Workspace folder not set. Please set it first.</string>
+
+    <string name="invalid_folder" translatable="false">Invalid folder</string>
+    <string name="folder_name" translatable="false">Folder name</string>
+    <string name="create_folder" translatable="false">Create folder</string>
+    <string name="select_this_folder" translatable="false">Select this folder</string>
+    <string name="storage" translatable="false">Storage</string>
+    <string name="workspace_folder" translatable="false">Workspace folder</string>
+    <string name="workspace_folder_summary" translatable="false">Choose the folder used as the workspace</string>
+
+
+    <string name="restore_instance" translatable="false">Restore Instance</string>
+    <string name="backup_instance_summary" translatable="false">Enter a name and create an instance ZIP</string>
+    <string name="restore_instance_summary" translatable="false">Choose an instance ZIP and restore</string>
+
+    <string name="backup_instance" translatable="false">Backup Instance</string>
+    <string name="instance_backup_name_hint" translatable="false">Enter backup name</string>
+    <string name="instance_backup_name_required" translatable="false">Please enter a backup name</string>
+    <string name="instance_backup_in_progress" translatable="false">Backing up…</string>
+    <string name="instance_backup_done" translatable="false">Backed Up!</string>
+    <string name="instance_backup_failed" translatable="false">Backup failed: %1$s</string>
+    <string name="instance_backup_done_path" translatable="false">Backed Up! %1$s</string>
+
 </resources>

@@ -20,6 +20,17 @@ public abstract class ClientConfiguration {
         return false;
     }
 
+    /**
+     * If true, BlackBox will expose the host's primary external storage ("/sdcard") to virtual apps
+     * instead of using the per-user virtual external directory.
+     *
+     * Note: The host app must have file access permission on the device (e.g. "All files access" on
+     * Android 11+) for virtual apps to be able to read/write the shared storage.
+     */
+    public boolean isShareHostSdcard() {
+        return false;
+    }
+
     public abstract String getHostPackageName();
 
     public boolean isEnableDaemonService() {

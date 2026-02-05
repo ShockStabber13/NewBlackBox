@@ -47,6 +47,27 @@ public class CopyExecutor implements Executor {
                 newFile.setReadOnly();
                 // update baseCodePath
                 ps.pkg.baseCodePath = newFile.getAbsolutePath();
+
+                // Split APKs: copy each split into the same virtual app dir and update paths.
+                if (ps.pkg.splitNames != null && ps.pkg.splitCodePaths != null &&
+                        ps.pkg.splitNames.length == ps.pkg.splitCodePaths.length) {
+                    String[] newSplitPaths = new String[ps.pkg.splitCodePaths.length];
+                    for (int i = 0; i < ps.pkg.splitCodePaths.length; i++) {
+                        String splitName = ps.pkg.splitNames[i];
+                        String splitPath = ps.pkg.splitCodePaths[i];
+                        if (splitName == null || splitName.length() == 0) {
+                            // fallback: derive a stable name
+                            splitName = "split" + i;
+                        }
+                        File splitOrig = new File(splitPath);
+                        File splitNew = BEnvironment.getSplitApkDir(ps.pkg.packageName, splitName);
+                        splitNew.getParentFile().mkdirs();
+                        FileUtils.copyFile(splitOrig, splitNew);
+                        splitNew.setReadOnly();
+                        newSplitPaths[i] = splitNew.getAbsolutePath();
+                    }
+                    ps.pkg.splitCodePaths = newSplitPaths;
+                }
             } catch (IOException e) {
                 e.printStackTrace();
                 return -1;

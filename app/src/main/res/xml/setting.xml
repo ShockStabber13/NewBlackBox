@@ -18,6 +18,16 @@
 
     <PreferenceCategory app:title="@string/other">
 
+        <SwitchPreferenceCompat
+                app:key="share_host_sdcard"
+                app:title="@string/share_host_sdcard"
+                app:summary="@string/share_host_sdcard_summary" />
+
+        <Preference
+                android:key="grant_all_files_access"
+                android:title="@string/grant_all_files_access"
+                android:summary="@string/grant_all_files_access_summary" />
+
         <Preference
                 android:key="gms_manager"
                 android:title="@string/gms_manager"
@@ -34,6 +44,23 @@
         <SwitchPreferenceCompat
                 app:key="daemon_enable"
                 app:title="@string/daemon_enable" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/storage">
+
+        <Preference
+            android:key="workspace_folder"
+            android:title="@string/workspace_folder"
+            android:summary="@string/workspace_folder_summary" />
+
+        <Preference
+            android:key="backup_instance"
+            android:title="Backup Instance" />
+
+        <Preference
+            android:key="restore_instance"
+            android:title="Restore Instance" />
 
     </PreferenceCategory>
 

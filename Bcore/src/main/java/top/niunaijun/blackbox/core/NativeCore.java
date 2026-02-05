@@ -69,38 +69,30 @@ public class NativeCore {
                     return Process.myUid();
                 }
                 
-                // Enhanced UID handling for sandboxed environments
+                // Option C: map the *host* UID to the *virtual app* UID when we have one.
+                // This is useful when the host process is making framework calls on behalf of a guest
+                // and some code paths compare Binder.getCallingUid() against the app's UID.
+                //
+                // Priority:
+                // 1) If the guest process has an assigned app UID, use it.
+                // 2) Otherwise, fall back to the configured calling UID (if present).
+                // 3) Finally, fall back to host UID.
                 try {
-                    int callingBUid = BlackBoxCore.getCallingBUid();
-                    if (callingBUid > 0 && callingBUid < Process.LAST_APPLICATION_UID) {
-                        return callingBUid;
+                    int appUid = BActivityThread.getUid();
+                    if (appUid > 0) {
+                        return appUid;
                     }
-                } catch (Exception e) {
-                    Log.w(TAG, "Error getting calling BUid: " + e.getMessage());
+                } catch (Throwable ignored) {
                 }
-                
-                // Special handling for system settings access to prevent UID mismatch
+
                 try {
-                    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
-                    for (StackTraceElement element : stackTrace) {
-                        String className = element.getClassName();
-                        String methodName = element.getMethodName();
-                        
-                        // Check if this is a system settings access that might cause UID issues
-                        if ((className.contains("Settings") || className.contains("FeatureFlag")) &&
-                            (methodName.contains("getString") || methodName.contains("getInt") || 
-                             methodName.contains("getLong") || methodName.contains("getFloat"))) {
-                            
-                            Log.d(TAG, "System settings access detected, using system UID to prevent mismatch");
-                            // Return a system UID to prevent SecurityException
-                            return Process.SYSTEM_UID; // UID 1000
-                        }
+                    int callingUid = BlackBoxCore.getCallingBUid();
+                    if (callingUid > 0 && callingUid < Process.LAST_APPLICATION_UID) {
+                        return callingUid;
                     }
-                } catch (Exception e) {
-                    Log.w(TAG, "Error analyzing stack trace for UID resolution: " + e.getMessage());
+                } catch (Throwable ignored) {
                 }
-                
-                // Fallback to host UID if calling BUid is invalid
+
                 return BlackBoxCore.getHostUid();
             }
             return origCallingUid;

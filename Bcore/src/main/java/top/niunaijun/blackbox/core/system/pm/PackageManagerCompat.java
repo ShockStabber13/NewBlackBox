@@ -311,6 +311,12 @@ public class PackageManagerCompat {
         ai.processName = BPackageManagerService.fixProcessName(p.packageName, ai.packageName);
         ai.publicSourceDir = sourceDir;
         ai.sourceDir = sourceDir;
+
+        // Split APKs (adb install-multiple equivalent): expose split paths so code/resources load.
+        if (p.splitCodePaths != null && p.splitCodePaths.length > 0) {
+            ai.splitSourceDirs = p.splitCodePaths;
+            ai.splitPublicSourceDirs = p.splitCodePaths;
+        }
         ai.uid = p.mExtras.appId;
 //        ai.uid = baseApplication.uid;
 

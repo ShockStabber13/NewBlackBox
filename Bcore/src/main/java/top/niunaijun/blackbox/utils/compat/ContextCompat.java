@@ -78,7 +78,7 @@ public class ContextCompat {
 
             if (BuildCompat.isS()) {
                 try {
-                    fixAttributionSourceState(BRContextImpl.get(context).getAttributionSource(), BlackBoxCore.getBUid());
+                    fixAttributionSourceState(BRContextImpl.get(context).getAttributionSource(), android.os.Process.myUid());
                 } catch (Exception e) {
                     Slog.w(TAG, "Failed to fix attribution source state: " + e.getMessage());
                 }

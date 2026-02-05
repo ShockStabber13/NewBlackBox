@@ -74,6 +74,40 @@ public class MethodParameterUtils {
         }
     }
 
+    /**
+     * Replace ALL occurrences of the virtual (B) uid with the host uid.
+     *
+     * Android 11+ / 12+ increasingly validates (uid, package) pairs on the server side (AppOps, Attribution).
+     * If we rewrite the packageName to host but leave ANY uid as the guest uid, the framework will throw:
+     * "Specified package \"<host>\" under uid <guest> but it is not".
+     */
+    public static void replaceAllUid(Object[] args) {
+        if (args == null) return;
+        int bUid;
+        try {
+            bUid = BlackBoxCore.getBUid();
+        } catch (Throwable t) {
+            bUid = -1;
+        }
+        if (bUid <= 0) return;
+
+        final int hostUid = BlackBoxCore.getHostUid();
+        for (int i = 0; i < args.length; i++) {
+            Object a = args[i];
+            if (a instanceof Integer) {
+                int uid = (Integer) a;
+                if (uid == bUid) {
+                    args[i] = hostUid;
+                }
+            } else if (a instanceof Long) {
+                long uid = (Long) a;
+                if (uid == (long) bUid) {
+                    args[i] = (long) hostUid;
+                }
+            }
+        }
+    }
+
     public static String replaceLastAppPkg(Object[] args) {
         int index = ArrayUtils.indexOfLast(args, String.class);
         if (index != -1) {

@@ -53,6 +53,16 @@ public class BPackage implements Parcelable {
     public String mVersionName;
     public String baseCodePath;
 
+    /**
+     * Split APK support (similar to adb install-multiple).
+     *
+     * When a package is installed from a split set (base.apk + split_*.apk),
+     * we persist split names and their code paths so we can expose them via
+     * ApplicationInfo.splitSourceDirs/splitPublicSourceDirs.
+     */
+    public String[] splitNames;
+    public String[] splitCodePaths;
+
     public int mSharedUserLabel;
     // Applications hardware preferences
     public ArrayList<ConfigurationInfo> configPreferences = null;
@@ -141,6 +151,24 @@ public class BPackage implements Parcelable {
         this.applicationInfo = aPackage.applicationInfo;
         this.mVersionName = aPackage.mVersionName;
         this.baseCodePath = aPackage.baseCodePath;
+
+        // Split APK support: copy split metadata if present (API-level dependent).
+        try {
+            java.lang.reflect.Field fNames = aPackage.getClass().getField("splitNames");
+            Object v = fNames.get(aPackage);
+            if (v instanceof String[]) {
+                this.splitNames = (String[]) v;
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            java.lang.reflect.Field fPaths = aPackage.getClass().getField("splitCodePaths");
+            Object v = fPaths.get(aPackage);
+            if (v instanceof String[]) {
+                this.splitCodePaths = (String[]) v;
+            }
+        } catch (Throwable ignored) {
+        }
         this.mSharedUserLabel = aPackage.mSharedUserLabel;
         this.configPreferences = aPackage.configPreferences;
         this.reqFeatures = aPackage.reqFeatures;
@@ -231,6 +259,8 @@ public class BPackage implements Parcelable {
         this.applicationInfo = in.readParcelable(ApplicationInfo.class.getClassLoader());
         this.mVersionName = in.readString();
         this.baseCodePath = in.readString();
+        this.splitNames = in.createStringArray();
+        this.splitCodePaths = in.createStringArray();
         this.mSharedUserLabel = in.readInt();
         this.configPreferences = in.createTypedArrayList(ConfigurationInfo.CREATOR);
         this.reqFeatures = in.createTypedArrayList(FeatureInfo.CREATOR);
@@ -721,6 +751,8 @@ public class BPackage implements Parcelable {
         dest.writeParcelable(this.applicationInfo, flags);
         dest.writeString(this.mVersionName);
         dest.writeString(this.baseCodePath);
+        dest.writeStringArray(this.splitNames);
+        dest.writeStringArray(this.splitCodePaths);
         dest.writeInt(this.mSharedUserLabel);
         dest.writeTypedList(this.configPreferences);
         dest.writeTypedList(this.reqFeatures);

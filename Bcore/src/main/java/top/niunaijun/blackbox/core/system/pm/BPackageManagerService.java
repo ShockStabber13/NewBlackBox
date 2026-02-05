@@ -687,7 +687,25 @@ public class BPackageManagerService extends IBPackageManagerService.Stub impleme
                 return new InstallResult().installError("not a XP module");
             }
 
-            PackageInfo packageArchiveInfo = BlackBoxCore.getPackageManager().getPackageArchiveInfo(apkFile.getAbsolutePath(), 0);
+            // Support split APK sets by allowing a directory "cluster" (base.apk + split_*.apk)
+            // similar to what adb install-multiple installs.
+            File baseForArchive = apkFile;
+            if (apkFile.isDirectory()) {
+                File baseApk = new File(apkFile, "base.apk");
+                if (!baseApk.exists()) {
+                    File[] apks = apkFile.listFiles((dir, name) -> name != null && name.toLowerCase().endsWith(".apk"));
+                    if (apks != null && apks.length > 0) {
+                        baseApk = apks[0];
+                    }
+                }
+                baseForArchive = baseApk;
+            }
+
+            if (baseForArchive == null || !baseForArchive.exists() || baseForArchive.isDirectory()) {
+                return result.installError("Invalid APK path. For split sets, provide a folder that contains base.apk and split_*.apk.");
+            }
+
+            PackageInfo packageArchiveInfo = BlackBoxCore.getPackageManager().getPackageArchiveInfo(baseForArchive.getAbsolutePath(), 0);
             if (packageArchiveInfo == null) {
                 return result.installError("getPackageArchiveInfo error.Please check whether APK is normal.");
             }
@@ -706,13 +724,13 @@ public class BPackageManagerService extends IBPackageManagerService.Stub impleme
                 Slog.w(TAG, "Installing potentially BlackBox-related app: " + packageName + ". Proceed with caution.");
             }
 
-            boolean support = AbiUtils.isSupport(apkFile);
+            boolean support = AbiUtils.isSupport(baseForArchive);
             if (!support) {
                 String msg = packageArchiveInfo.applicationInfo.loadLabel(BlackBoxCore.getPackageManager()) + "[" + packageArchiveInfo.packageName + "]";
                 return result.installError(packageArchiveInfo.packageName,
                         msg + "\n" + (BlackBoxCore.is64Bit() ? "The box does not support 32-bit Application" : "The box does not support 64-bit Application"));
             }
-            PackageParser.Package aPackage = parserApk(apkFile.getAbsolutePath());
+            PackageParser.Package aPackage = parserApkOrCluster(apkFile);
             if (aPackage == null) {
                 return result.installError("parser apk error.");
             }
@@ -750,10 +768,10 @@ public class BPackageManagerService extends IBPackageManagerService.Stub impleme
         return result;
     }
 
-    private PackageParser.Package parserApk(String file) {
+    private PackageParser.Package parserApkOrCluster(File packageFile) {
         try {
-            PackageParser parser = PackageParserCompat.createParser(new File(file));
-            PackageParser.Package aPackage = PackageParserCompat.parsePackage(parser, new File(file), 0);
+            PackageParser parser = PackageParserCompat.createParser(packageFile);
+            PackageParser.Package aPackage = PackageParserCompat.parsePackage(parser, packageFile, 0);
             PackageParserCompat.collectCertificates(parser, aPackage, 0);
             return aPackage;
         } catch (Throwable t) {

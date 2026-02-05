@@ -51,8 +51,11 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         try {
-            MethodParameterUtils.replaceFirstAppPkg(args);
-            MethodParameterUtils.replaceLastUid(args);
+            // AppOps on Android 11+/12+ validates (uid, package) pairs very strictly.
+            // If we rewrite packageName -> host but leave *any* uid as the virtual uid, the server throws
+            // "Specified package \"<host>\" under uid <guest> but it is not" and permission checks loop.
+            MethodParameterUtils.replaceAllAppPkg(args);
+            MethodParameterUtils.replaceAllUid(args);
             return super.invoke(proxy, method, args);
         } catch (SecurityException e) {
             // Handle SecurityException for UID/package mismatches
@@ -81,7 +84,13 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
     public static class CheckPackage extends MethodHook {
         @Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
-            // todo
+            // Android uses this to validate (uid, package). We must not throw here.
+            MethodParameterUtils.replaceAllAppPkg(args);
+            MethodParameterUtils.replaceAllUid(args);
+            // If the return type is void, return null; otherwise return MODE_ALLOWED.
+            if (method.getReturnType() == Void.TYPE) {
+                return null;
+            }
             return AppOpsManager.MODE_ALLOWED;
         }
     }
@@ -90,7 +99,8 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
     public static class CheckOperation extends MethodHook {
         @Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
-            MethodParameterUtils.replaceLastUid(args);
+            MethodParameterUtils.replaceAllAppPkg(args);
+            MethodParameterUtils.replaceAllUid(args);
             try {
                 // args: (int op, int uid, String packageName)
                 int op = (int) args[0];
@@ -102,7 +112,12 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
                 }
             } catch (Throwable ignored) {
             }
-            return method.invoke(who, args);
+            try {
+                return method.invoke(who, args);
+            } catch (SecurityException se) {
+                Slog.w(TAG, "AppOps CheckOperation: SecurityException, allowing", se);
+                return AppOpsManager.MODE_ALLOWED;
+            }
         }
     }
 
@@ -110,6 +125,8 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
     public static class NoteOperation extends MethodHook {
         @Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            MethodParameterUtils.replaceAllAppPkg(args);
+            MethodParameterUtils.replaceAllUid(args);
             // args: (int op, int uid, String packageName)
             try {
                 int op = (int) args[0];
@@ -120,7 +137,12 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
                 }
             } catch (Throwable ignored) {
             }
-            return method.invoke(who, args);
+            try {
+                return method.invoke(who, args);
+            } catch (SecurityException se) {
+                Slog.w(TAG, "AppOps NoteOperation: SecurityException, allowing", se);
+                return AppOpsManager.MODE_ALLOWED;
+            }
         }
     }
 
@@ -128,6 +150,8 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
     public static class CheckOpNoThrow extends MethodHook {
         @Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            MethodParameterUtils.replaceAllAppPkg(args);
+            MethodParameterUtils.replaceAllUid(args);
             // args: (String op, int uid, String packageName)
             try {
                 String opStr = (String) args[0];
@@ -137,7 +161,12 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
                 }
             } catch (Throwable ignored) {
             }
-            return method.invoke(who, args);
+            try {
+                return method.invoke(who, args);
+            } catch (SecurityException se) {
+                Slog.w(TAG, "AppOps CheckOpNoThrow: SecurityException, allowing", se);
+                return AppOpsManager.MODE_ALLOWED;
+            }
         }
     }
 
@@ -146,6 +175,8 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
     public static class StartOp extends MethodHook {
         @Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            MethodParameterUtils.replaceAllAppPkg(args);
+            MethodParameterUtils.replaceAllUid(args);
             try {
                 int op = (int) args[0];
                 String name = getOpPublicName(op);
@@ -155,7 +186,12 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
                 }
             } catch (Throwable ignored) {
             }
-            return method.invoke(who, args);
+            try {
+                return method.invoke(who, args);
+            } catch (SecurityException se) {
+                Slog.w(TAG, "AppOps StartOp: SecurityException, allowing", se);
+                return AppOpsManager.MODE_ALLOWED;
+            }
         }
     }
 
@@ -163,6 +199,8 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
     public static class StartOpNoThrow extends MethodHook {
         @Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            MethodParameterUtils.replaceAllAppPkg(args);
+            MethodParameterUtils.replaceAllUid(args);
             try {
                 // args: (String op, int uid, String packageName)
                 String opStr = (String) args[0];
@@ -172,7 +210,12 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
                 }
             } catch (Throwable ignored) {
             }
-            return method.invoke(who, args);
+            try {
+                return method.invoke(who, args);
+            } catch (SecurityException se) {
+                Slog.w(TAG, "AppOps StartOpNoThrow: SecurityException, allowing", se);
+                return AppOpsManager.MODE_ALLOWED;
+            }
         }
     }
 
@@ -198,34 +241,85 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
     public static class NoteOp extends MethodHook {
         @Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            MethodParameterUtils.replaceAllAppPkg(args);
+            MethodParameterUtils.replaceAllUid(args);
             try {
                 int op = (int) args[0];
                 String name = getOpPublicName(op);
-                if (name != null && (name.contains("RECORD_AUDIO") || name.contains("AUDIO") || name.contains("MICROPHONE"))) {
-                    Slog.d(TAG, "AppOps NoteOp: Allowing RECORD_AUDIO operation: " + name);
+                if (name != null && isMediaStorageOrAudioOp(name)) {
+                    Slog.d(TAG, "AppOps NoteOp: Allowing operation: " + name);
                     return AppOpsManager.MODE_ALLOWED;
                 }
             } catch (Throwable ignored) {
             }
-            return method.invoke(who, args);
+            try {
+                return method.invoke(who, args);
+            } catch (SecurityException se) {
+                Slog.w(TAG, "AppOps NoteOp: SecurityException, allowing", se);
+                return AppOpsManager.MODE_ALLOWED;
+            }
         }
     }
 
-    // Specific handler for RECORD_AUDIO operations with package name
+    // Covers AppOpsManager.unsafeCheckOpNoThrow(...) and related binder calls
+    @ProxyMethod("unsafeCheckOpNoThrow")
+    public static class UnsafeCheckOpNoThrow extends MethodHook {
+        @Override
+        protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            // Covers AppOpsManager.unsafeCheckOpNoThrow(...) and related binder calls
+            MethodParameterUtils.replaceAllAppPkg(args);
+            MethodParameterUtils.replaceAllUid(args);
+            try {
+                if (args != null && args.length > 0) {
+                    Object opObj = args[0];
+                    if (opObj instanceof String) {
+                        String opStr = (String) opObj;
+                        if (isMediaStorageOrAudioOp(opStr)) {
+                            Slog.d(TAG, "AppOps UnsafeCheck: Allowing opStr=" + opStr);
+                            return AppOpsManager.MODE_ALLOWED;
+                        }
+                    } else if (opObj instanceof Integer) {
+                        int op = (int) opObj;
+                        String name = getOpPublicName(op);
+                        if (isMediaStorageOrAudioOp(name)) {
+                            Slog.d(TAG, "AppOps UnsafeCheck: Allowing op=" + op + " name=" + name);
+                            return AppOpsManager.MODE_ALLOWED;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            try {
+                return method.invoke(who, args);
+            } catch (SecurityException se) {
+                Slog.w(TAG, "AppOps UnsafeCheck: SecurityException, allowing", se);
+                return AppOpsManager.MODE_ALLOWED;
+            }
+        }
+    }
+
+    // noteOpNoThrow is used by many apps to gate special access checks (incl. MANAGE_EXTERNAL_STORAGE)
     @ProxyMethod("noteOpNoThrow")
     public static class NoteOpNoThrow extends MethodHook {
         @Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            MethodParameterUtils.replaceAllAppPkg(args);
+            MethodParameterUtils.replaceAllUid(args);
             try {
                 int op = (int) args[0];
                 String name = getOpPublicName(op);
-                if (name != null && (name.contains("RECORD_AUDIO") || name.contains("AUDIO") || name.contains("MICROPHONE"))) {
-                    Slog.d(TAG, "AppOps NoteOpNoThrow: Allowing RECORD_AUDIO operation: " + name);
+                if (name != null && isMediaStorageOrAudioOp(name)) {
+                    Slog.d(TAG, "AppOps NoteOpNoThrow: Allowing operation: " + name);
                     return AppOpsManager.MODE_ALLOWED;
                 }
             } catch (Throwable ignored) {
             }
-            return method.invoke(who, args);
+            try {
+                return method.invoke(who, args);
+            } catch (SecurityException se) {
+                Slog.w(TAG, "AppOps NoteOpNoThrow: SecurityException, allowing", se);
+                return AppOpsManager.MODE_ALLOWED;
+            }
         }
     }
 
@@ -235,6 +329,7 @@ public class IAppOpsManagerProxy extends BinderInvocationStub {
         String n = opPublicNameOrStr.toUpperCase();
         return n.contains("READ_MEDIA")
                 || n.contains("READ_EXTERNAL_STORAGE")
+                || n.contains("MANAGE_EXTERNAL_STORAGE")
                 || n.contains("RECORD_AUDIO")
                 || n.contains("CAPTURE_AUDIO_OUTPUT")
                 || n.contains("MODIFY_AUDIO_SETTINGS")

@@ -1,6 +1,7 @@
 package top.niunaijun.blackbox.core.system.os;
 
 import android.net.Uri;
+import android.os.Environment;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.storage.StorageVolume;
@@ -44,10 +45,13 @@ public class BStorageManagerService extends IBStorageManagerService.Stub impleme
             StorageVolume[] storageVolumes = BRStorageManager.get().getVolumeList(BUserHandle.getUserId(Process.myUid()), 0);
             if (storageVolumes == null)
                 return null;
+            File externalRoot = BlackBoxCore.get().isShareHostSdcard()
+                    ? Environment.getExternalStorageDirectory()
+                    : BEnvironment.getExternalUserDir(userId);
             for (StorageVolume storageVolume : storageVolumes) {
-                BRStorageVolume.get(storageVolume)._set_mPath(BEnvironment.getExternalUserDir(userId));
+                BRStorageVolume.get(storageVolume)._set_mPath(externalRoot);
                 if (BuildCompat.isPie()) {
-                    BRStorageVolume.get(storageVolume)._set_mInternalPath(BEnvironment.getExternalUserDir(userId));
+                    BRStorageVolume.get(storageVolume)._set_mInternalPath(externalRoot);
                 }
             }
             return storageVolumes;

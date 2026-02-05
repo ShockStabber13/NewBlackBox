@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Added by Workspace/Instances feature -->
+    <string name="workspace_saved" translatable="false">Workspace saved</string>
+    <string name="workspace_ready" translatable="false">Workspace ready</string>
+    <string name="workspace_not_set" translatable="false">Workspace not set</string>
+    <string name="workspace_set" translatable="false">Workspace set</string>
+    <string name="set_workspace_folder" translatable="false">Set workspace folder</string>
+    <string name="ensure_workspace_folders" translatable="false">Ensure workspace folders exist</string>
+    <string name="workspace_hint" translatable="false">Pick a folder on your storage to use as the workspace.</string>
+
+    <string name="no_instances_found" translatable="false">No instances found</string>
+    <string name="restore" translatable="false">Restore</string>
+    <string name="delete" translatable="false">Delete</string>
+</resources>

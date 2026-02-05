@@ -141,6 +141,14 @@ public class BEnvironment {
         return new File(sVirtualRoot, "data/app/" + packageName + "/base.apk");
     }
 
+    /**
+     * Location for split APKs within the virtual app directory.
+     * Example: data/app/<pkg>/split_config.arm64_v8a.apk
+     */
+    public static File getSplitApkDir(String packageName, String splitName) {
+        return new File(sVirtualRoot, "data/app/" + packageName + "/split_" + splitName + ".apk");
+    }
+
     public static File getAppLibDir(String packageName) {
         return new File(getAppDir(packageName), "lib");
     }

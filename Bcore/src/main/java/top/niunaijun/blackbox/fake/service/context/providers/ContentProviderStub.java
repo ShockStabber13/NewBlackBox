@@ -51,13 +51,22 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
         if ("asBinder".equals(method.getName())) {
             return method.invoke(mBase, args);
         }
-        
+
         // Fix AttributionSource and package name issues
         if (args != null && args.length > 0) {
             for (int i = 0; i < args.length; i++) {
                 Object arg = args[i];
                 if (arg instanceof String) {
                     String strArg = (String) arg;
+
+                    // DO NOT rewrite non-package strings (these show up in provider calls):
+                    // - MIME types like "video/*"
+                    // - URIs like "content://..." / "file://..."
+                    // - absolute paths like "/sdcard/..."
+                    if (strArg.startsWith("content:") || strArg.startsWith("file:") || strArg.startsWith("/") || strArg.contains("/")) {
+                        continue;
+                    }
+
                     // Don't replace system provider authorities
                     if (!isSystemProviderAuthority(strArg)) {
                         // Replace package name with the correct one
@@ -82,13 +91,13 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
                 }
             }
         }
-        
+
         // Pre-validate the call to prevent system-level SecurityException
         String methodName = method.getName();
-        if (methodName.equals("query") || methodName.equals("insert") || 
-            methodName.equals("update") || methodName.equals("delete") || 
-            methodName.equals("bulkInsert") || methodName.equals("call")) {
-            
+        if (methodName.equals("query") || methodName.equals("insert") ||
+                methodName.equals("update") || methodName.equals("delete") ||
+                methodName.equals("bulkInsert") || methodName.equals("call")) {
+
             // Check if this is likely to cause a UID mismatch
             try {
                 return method.invoke(mBase, args);
@@ -105,17 +114,17 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
                         return getSafeDefaultValue(methodName, method.getReturnType());
                     }
                 }
-                
+
                 // For call method specifically, always return safe default on any error
                 if (methodName.equals("call")) {
                     Slog.w(TAG, "Error in call method, returning safe default: " + e.getMessage());
                     return getSafeDefaultValue(methodName, method.getReturnType());
                 }
-                
+
                 throw e.getCause();
             }
         }
-        
+
         // For other methods, proceed normally
         try {
             return method.invoke(mBase, args);
@@ -129,7 +138,7 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
             throw e.getCause();
         }
     }
-    
+
     private Object getSafeDefaultValue(String methodName) {
         switch (methodName) {
             case "query":
@@ -156,35 +165,35 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
 
     private boolean isSystemProviderAuthority(String authority) {
         if (authority == null) return false;
-        
+
         // Check for system provider authorities that need special handling
-        return authority.equals("settings") || 
-               authority.equals("settings_global") || 
-               authority.equals("settings_system") || 
-               authority.equals("settings_secure") ||
-               authority.equals("media") ||
-               authority.equals("telephony") ||
-               authority.startsWith("android.provider.Settings");
+        return authority.equals("settings") ||
+                authority.equals("settings_global") ||
+                authority.equals("settings_system") ||
+                authority.equals("settings_secure") ||
+                authority.equals("media") ||
+                authority.equals("telephony") ||
+                authority.startsWith("android.provider.Settings");
     }
-    
+
     /**
      * Enhanced UID mismatch detection and handling
      */
     private boolean isUidMismatchError(Throwable error) {
         if (error == null) return false;
-        
+
         String message = error.getMessage();
         if (message == null) return false;
-        
+
         // Check for UID mismatch patterns
-        return message.contains("Calling uid") && 
-               message.contains("doesn't match source uid") ||
-               message.contains("uid") && 
-               message.contains("permission") ||
-               message.contains("SecurityException") ||
-               message.contains("UID mismatch");
+        return message.contains("Calling uid") &&
+                message.contains("doesn't match source uid") ||
+                message.contains("uid") &&
+                        message.contains("permission") ||
+                message.contains("SecurityException") ||
+                message.contains("UID mismatch");
     }
-    
+
     /**
      * Get safe default value based on method name and return type
      */
@@ -192,7 +201,7 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
         if (returnType == null) {
             return getSafeDefaultValue(methodName);
         }
-        
+
         // Return type-specific safe defaults
         if (returnType == String.class) {
             return "true"; // Safe default for strings
@@ -207,7 +216,7 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
         } else if (returnType == Bundle.class) {
             return new Bundle(); // Safe default for bundles
         }
-        
+
         // Fallback to method-specific defaults
         return getSafeDefaultValue(methodName);
     }
@@ -218,9 +227,9 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
     private void fixAttributionSourceUid(Object attributionSource) {
         try {
             if (attributionSource == null) return;
-            
+
             Class<?> attributionSourceClass = attributionSource.getClass();
-            
+
             // Try to find and set the UID field
             try {
                 java.lang.reflect.Field uidField = attributionSourceClass.getDeclaredField("mUid");
@@ -246,7 +255,7 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
                     }
                 }
             }
-            
+
             // Also try to fix package name
             try {
                 java.lang.reflect.Field packageField = attributionSourceClass.getDeclaredField("mPackageName");
@@ -256,7 +265,7 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
             } catch (Exception e) {
                 // Ignore package name fixing errors
             }
-            
+
         } catch (Exception e) {
             Slog.w(TAG, "Error fixing AttributionSource UID: " + e.getMessage());
         }

@@ -139,14 +139,31 @@ public class IOCore {
             rule.put(String.format("/data/misc/profiles/ref/%d/%s", BlackBoxCore.getUserId(), packageName), profilesRefDir.getAbsolutePath());
 
             if (BlackBoxCore.getContext().getExternalCacheDir() != null && context.getExternalCacheDir() != null) {
-                File external = BEnvironment.getExternalUserDir(BlackBoxCore.getUserId());
+                final boolean shareHostSdcard = BlackBoxCore.get().isShareHostSdcard();
+                File external;
+                if (shareHostSdcard) {
+                    // Host primary external storage (typically /storage/emulated/0)
+                    external = Environment.getExternalStorageDirectory();
+                } else {
+                    // Per-virtual-user isolated external storage
+                    external = BEnvironment.getExternalUserDir(BlackBoxCore.getUserId());
+                }
 
-                // sdcard
-                rule.put("/sdcard", external.getAbsolutePath());
-                rule.put(String.format("/storage/emulated/%d", systemUserId), external.getAbsolutePath());
+                // sdcard aliases commonly used by apps
+                final String extPath = external.getAbsolutePath();
+                rule.put("/sdcard", extPath);
+                rule.put("/mnt/sdcard", extPath);
+                rule.put("/storage/self/primary", extPath);
+                // Most devices are user 0, but keep the dynamic mapping too
+                rule.put("/storage/emulated/0", extPath);
+                rule.put(String.format("/storage/emulated/%d", systemUserId), extPath);
 
-                blackRule.add("/sdcard/Pictures");
-                blackRule.add(String.format("/storage/emulated/%d/Pictures", systemUserId));
+                // When using virtual external storage, some OEM gallery paths cause issues; keep the old block.
+                // If we're sharing host storage, do NOT block Pictures.
+                if (!shareHostSdcard) {
+                    blackRule.add("/sdcard/Pictures");
+                    blackRule.add(String.format("/storage/emulated/%d/Pictures", systemUserId));
+                }
             }
             if (BlackBoxCore.get().isHideRoot()) {
                 hideRoot(rule);

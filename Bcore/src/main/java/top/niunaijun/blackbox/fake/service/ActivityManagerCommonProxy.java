@@ -1,6 +1,7 @@
 package top.niunaijun.blackbox.fake.service;
 
 import android.content.ComponentName;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.ResolveInfo;
@@ -16,6 +17,7 @@ import top.niunaijun.blackbox.app.BActivityThread;
 import top.niunaijun.blackbox.fake.hook.MethodHook;
 import top.niunaijun.blackbox.fake.hook.ProxyMethod;
 import top.niunaijun.blackbox.fake.provider.FileProviderHandler;
+import top.niunaijun.blackbox.fake.provider.FileProxyRegistry;
 import top.niunaijun.blackbox.utils.ComponentUtils;
 import top.niunaijun.blackbox.utils.MethodParameterUtils;
 import top.niunaijun.blackbox.utils.Slog;
@@ -37,12 +39,45 @@ public class ActivityManagerCommonProxy {
 
     @ProxyMethod("startActivity")
     public static class StartActivity extends MethodHook {
-        @Override
+        
+private void ensureGrantUriPermission(Intent intent) {
+    if (intent == null) return;
+    // Universal, surefire fix:
+    // Replace ANY guest-owned content:// Uri with a BlackBox-owned streaming proxy Uri,
+    // then force grant flags + ClipData.
+    try {
+        FileProxyRegistry.wrapOutgoingIntent(BlackBoxCore.getContext(), intent);
+    } catch (Throwable ignored) {
+        // Best-effort only. If something goes wrong, keep original behavior.
+        try {
+            // Keep at least the grant flags.
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        } catch (Throwable ignored2) {
+        }
+    }
+}
+
+@Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
             MethodParameterUtils.replaceFirstAppPkg(args);
             Intent intent = getIntent(args);
+            ensureGrantUriPermission(intent);
             Slog.d(TAG, "Hook in : " + intent);
             assert intent != null;
+
+            // If the Intent carries our host-owned FileProxy Uri, prefer launching on the host
+            // so the chooser/target apps come from outside the virtual space.
+            try {
+                if (top.niunaijun.blackbox.fake.provider.FileProxyProvider.isProxyIntent(BlackBoxCore.getContext(), intent)) {
+                    // Ensure grants are present (already handled above) and do not virtualize resolution.
+                    return method.invoke(who, args);
+                }
+            } catch (Throwable ignored) {
+            }
+
             // Allow PermissionController to run so apps receive onRequestPermissionsResult
             // (granting is still handled by our Package/AppOps hooks).
             if (intent.getParcelableExtra("_B_|_target_") != null) {
@@ -76,6 +111,30 @@ public class ActivityManagerCommonProxy {
                 return method.invoke(who, args);
             }
             String dataString = intent.getDataString();
+            // Some apps build this Intent with an empty data URI: "package:".
+            // Android will then show a generic screen and the toggle won't apply to the caller.
+            // Force it to point at the host package so the permission actually sticks.
+            if ("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION".equals(intent.getAction())) {
+                // Variants seen in the wild:
+                //   - data == null
+                //   - dataString == "package:"
+                //   - scheme == "package" but empty schemeSpecificPart
+                Uri d = intent.getData();
+                String ssp = null;
+                try {
+                    if (d != null && "package".equalsIgnoreCase(d.getScheme())) {
+                        ssp = d.getSchemeSpecificPart();
+                    }
+                } catch (Throwable ignored) {
+                }
+                boolean emptyPackageTarget = (d == null)
+                        || "package:".equals(dataString)
+                        || (ssp != null && ssp.length() == 0);
+                if (emptyPackageTarget) {
+                    intent.setData(Uri.parse("package:" + BlackBoxCore.getHostPkg()));
+                    dataString = intent.getDataString();
+                }
+            }
             if (dataString != null && dataString.equals("package:" + BActivityThread.getAppPackageName())) {
                 intent.setData(Uri.parse("package:" + BlackBoxCore.getHostPkg()));
             }

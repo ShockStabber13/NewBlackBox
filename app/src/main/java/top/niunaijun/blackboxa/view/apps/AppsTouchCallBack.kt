@@ -11,6 +11,12 @@ class AppsTouchCallBack(private val onMoveBlock: (from: Int, to: Int) -> Unit) :
         private const val TAG = "AppsTouchCallBack"
     }
 
+
+    override fun isLongPressDragEnabled(): Boolean {
+        // Long-press should open the app menu reliably; don't let ItemTouchHelper steal it for drag.
+        return false
+    }
+
     override fun getMovementFlags(
         recyclerView: RecyclerView,
         viewHolder: RecyclerView.ViewHolder

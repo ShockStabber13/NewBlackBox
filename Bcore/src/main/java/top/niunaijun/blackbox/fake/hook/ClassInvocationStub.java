@@ -50,6 +50,13 @@ public abstract class ClassInvocationStub implements InvocationHandler, IInjectH
     @Override
     public void injectHook() {
         mBase = getWho();
+        if (mBase == null) {
+            try {
+                android.util.Log.w(TAG, "Skip hook: getWho() returned null for " + getClass().getSimpleName());
+            } catch (Throwable ignored) {
+            }
+            return;
+        }
         mProxyInvocation = Proxy.newProxyInstance(mBase.getClass().getClassLoader(), MethodParameterUtils.getAllInterface(mBase.getClass()), this);
         if (!onlyProxy) {
             inject(mBase, mProxyInvocation);

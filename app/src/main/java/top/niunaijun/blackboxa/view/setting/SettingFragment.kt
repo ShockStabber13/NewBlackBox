@@ -1,7 +1,9 @@
 package top.niunaijun.blackboxa.view.setting
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
@@ -10,6 +12,9 @@ import top.niunaijun.blackboxa.R
 import top.niunaijun.blackboxa.app.AppManager
 import top.niunaijun.blackboxa.util.toast
 import top.niunaijun.blackboxa.view.gms.GmsManagerActivity
+import top.niunaijun.blackboxa.view.workspace.WorkspacePickerActivity
+import top.niunaijun.blackboxa.view.instance.InstanceBackupActivity
+import top.niunaijun.blackboxa.view.instance.InstanceRestoreActivity
 import top.niunaijun.blackboxa.view.xp.XpActivity
 
 /**
@@ -27,6 +32,15 @@ class SettingFragment : PreferenceFragmentCompat() {
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.setting, rootKey)
 
+        findPreference<Preference>("backup_instance")?.setOnPreferenceClickListener {
+            startActivity(Intent(requireContext(), InstanceBackupActivity::class.java))
+            true
+        }
+
+        findPreference<Preference>("restore_instance")?.setOnPreferenceClickListener {
+            startActivity(Intent(requireContext(), InstanceRestoreActivity::class.java))
+            true
+        }
         xpEnable = findPreference("xp_enable")!!
         xpEnable.isChecked = BlackBoxCore.get().isXPEnable
 
@@ -42,6 +56,52 @@ class SettingFragment : PreferenceFragmentCompat() {
             true
         }
         initGms()
+
+        // Share host /sdcard with virtual apps
+        invalidHideState {
+            val shareSdcardPref: Preference = (findPreference("share_host_sdcard")!!)
+            val share = AppManager.mBlackBoxLoader.shareHostSdcard()
+            shareSdcardPref.setDefaultValue(share)
+            shareSdcardPref
+        }
+
+        // Quick shortcut to the "All files access" settings page for this host app
+        val grantAllFiles: Preference = (findPreference("grant_all_files_access")!!)
+        grantAllFiles.setOnPreferenceClickListener {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                intent.data = Uri.parse("package:${requireContext().packageName}")
+                startActivity(intent)
+            } catch (e: Exception) {
+                // Fallback for OEM variants
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                } catch (_: Exception) {
+                }
+            }
+            true
+        }
+
+        // Workspace folder picker (custom, no SAF)
+        val workspaceFolder: Preference = (findPreference("workspace_folder")!!)
+        workspaceFolder.setOnPreferenceClickListener {
+            startActivity(Intent(requireContext(), WorkspacePickerActivity::class.java))
+            true
+        }
+        // Backup instance
+        val backupInstance: Preference = (findPreference("backup_instance")!!)
+        backupInstance.setOnPreferenceClickListener {
+            startActivity(Intent(requireContext(), InstanceBackupActivity::class.java))
+            true
+        }
+
+        // Restore instance
+        val restoreInstance: Preference = (findPreference("restore_instance")!!)
+        restoreInstance.setOnPreferenceClickListener {
+            startActivity(Intent(requireContext(), InstanceRestoreActivity::class.java))
+            true
+        }
+
 
         invalidHideState{
             val xpHidePreference: Preference = (findPreference("xp_hide")!!)
@@ -63,6 +123,7 @@ class SettingFragment : PreferenceFragmentCompat() {
             daemonPreference.setDefaultValue(mDaemonEnable)
             daemonPreference
         }
+
     }
 
     private fun initGms() {
@@ -85,6 +146,10 @@ class SettingFragment : PreferenceFragmentCompat() {
         pref.setOnPreferenceChangeListener { preference, newValue ->
             val tmpHide = (newValue == true)
             when (preference.key) {
+                "share_host_sdcard" -> {
+                    AppManager.mBlackBoxLoader.invalidShareHostSdcard(tmpHide)
+                }
+
                 "xp_hide" -> {
                     AppManager.mBlackBoxLoader.invalidHideXposed(tmpHide)
                 }

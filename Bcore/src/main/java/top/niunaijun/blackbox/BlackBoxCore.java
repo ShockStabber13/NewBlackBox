@@ -1288,6 +1288,10 @@ public class BlackBoxCore extends ClientConfiguration {
         return mClientConfiguration.isHideXposed();
     }
 
+    public boolean isShareHostSdcard() {
+        return mClientConfiguration.isShareHostSdcard();
+    }
+
     @Override
     public String getHostPackageName() {
         return mClientConfiguration.getHostPackageName();

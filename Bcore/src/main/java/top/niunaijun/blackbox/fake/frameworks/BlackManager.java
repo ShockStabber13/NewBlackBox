@@ -18,7 +18,7 @@ public abstract class BlackManager<Service extends IInterface> {
     public static final String TAG = "BlackManager";
 
     private Service mService;
-    private final AtomicBoolean mServiceCreationFailed = new AtomicBoolean(false);
+    private static final AtomicBoolean mServiceCreationFailed = new AtomicBoolean(false);
     private long mLastRetryTime = 0;
     private long mLastServiceCreationTime = 0;
     private static final long RETRY_TIMEOUT_MS = 2000; // Shorter timeout

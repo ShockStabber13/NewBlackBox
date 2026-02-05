@@ -24,6 +24,7 @@ class BlackBoxLoader {
     private var mHideXposed by AppSharedPreferenceDelegate(App.getContext(), false)
     private var mDaemonEnable by AppSharedPreferenceDelegate(App.getContext(), false)
     private var mShowShortcutPermissionDialog by AppSharedPreferenceDelegate(App.getContext(), true)
+    private var mShareHostSdcard by AppSharedPreferenceDelegate(App.getContext(), false)
 
     fun hideRoot(): Boolean {
         return try {
@@ -73,6 +74,23 @@ class BlackBoxLoader {
             this.mDaemonEnable = enable
         } catch (e: Exception) {
             Log.e(TAG, "Error setting daemonEnable: ${e.message}")
+        }
+    }
+
+    fun shareHostSdcard(): Boolean {
+        return try {
+            mShareHostSdcard
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting shareHostSdcard: ${e.message}")
+            false
+        }
+    }
+
+    fun invalidShareHostSdcard(enable: Boolean) {
+        try {
+            this.mShareHostSdcard = enable
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting shareHostSdcard: ${e.message}")
         }
     }
 
@@ -188,6 +206,15 @@ class BlackBoxLoader {
                         mDaemonEnable
                     } catch (e: Exception) {
                         Log.e(TAG, "Error checking daemonEnable: ${e.message}")
+                        false
+                    }
+                }
+
+                override fun isShareHostSdcard(): Boolean {
+                    return try {
+                        mShareHostSdcard
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error checking shareHostSdcard: ${e.message}")
                         false
                     }
                 }
