@@ -1,187 +1,204 @@
 package top.niunaijun.blackbox.utils;
 
-import android.os.Binder;
-import android.os.Process;
-import android.os.Bundle;
-
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.Set;
-
 import top.niunaijun.blackbox.BlackBoxCore;
+import top.niunaijun.blackbox.app.BActivityThread;
+import top.niunaijun.blackbox.utils.Slog;
 
 /**
- * Fixes AttributionSource so framework UID checks pass on Android 12+.
+ * Centralized utility class for fixing AttributionSource UID issues
+ * This eliminates code duplication across multiple proxy classes
  */
 public class AttributionSourceUtils {
     private static final String TAG = "AttributionSourceUtils";
 
+    /**
+     * Fix AttributionSource objects in method arguments
+     */
     public static void fixAttributionSourceInArgs(Object[] args) {
         if (args == null) return;
-
-        for (Object arg : args) {
-            if (arg == null) continue;
-
-            final String cn = arg.getClass().getName();
-            try {
-                if (cn.contains("AttributionSource")) {
-                    fixAttributionSource(arg);
-                } else if (arg instanceof Bundle) {
-                    fixAttributionSourceInBundle((Bundle) arg);
+        
+        for (int i = 0; i < args.length; i++) {
+            Object arg = args[i];
+            if (arg != null && arg.getClass().getName().contains("AttributionSource")) {
+                try {
+                    fixAttributionSourceUid(arg);
+                    Slog.d(TAG, "Fixed AttributionSource UID in method arguments");
+                } catch (Exception e) {
+                    Slog.w(TAG, "Failed to fix AttributionSource in args: " + e.getMessage());
                 }
-            } catch (Throwable t) {
-                Slog.w(TAG, "fixAttributionSourceInArgs error: " + t.getMessage());
+            }
+        }
+        
+        // Also check for Bundle objects that might contain AttributionSource
+        for (int i = 0; i < args.length; i++) {
+            Object arg = args[i];
+            if (arg != null && arg.getClass().getName().contains("Bundle")) {
+                try {
+                    fixAttributionSourceInBundle(arg);
+                } catch (Exception e) {
+                    Slog.w(TAG, "Failed to fix AttributionSource in Bundle: " + e.getMessage());
+                }
             }
         }
     }
 
-    private static int getSafeUid() {
-        int calling = Binder.getCallingUid();
-        if (calling > 0) return calling;
-        return Process.myUid();
-    }
-
-    private static String getSafePackage() {
+    /**
+     * Fix AttributionSource UID
+     */
+    public static void fixAttributionSourceUid(Object attributionSource) {
         try {
-            String host = BlackBoxCore.getHostPkg();
-            if (host != null && !host.isEmpty()) return host;
-        } catch (Throwable ignored) {}
-        return "android";
+            if (attributionSource == null) return;
+            
+            Class<?> attributionSourceClass = attributionSource.getClass();
+            
+            // Try multiple field names that might exist
+            String[] uidFieldNames = {"mUid", "uid", "mCallingUid", "callingUid", "mSourceUid", "sourceUid"};
+            
+            for (String fieldName : uidFieldNames) {
+                try {
+                    java.lang.reflect.Field uidField = attributionSourceClass.getDeclaredField(fieldName);
+                    uidField.setAccessible(true);
+                    uidField.set(attributionSource, BActivityThread.getBUid());
+                    Slog.d(TAG, "Fixed AttributionSource UID via field: " + fieldName);
+                    break;
+                } catch (NoSuchFieldException e) {
+                    // Continue to next field name
+                }
+            }
+            
+            // Try using setter methods if fields don't work
+            try {
+                java.lang.reflect.Method setUidMethod = attributionSourceClass.getDeclaredMethod("setUid", int.class);
+                setUidMethod.setAccessible(true);
+                setUidMethod.invoke(attributionSource, BActivityThread.getBUid());
+                Slog.d(TAG, "Fixed AttributionSource UID via setter method");
+            } catch (Exception e) {
+                // Ignore setter method errors
+            }
+            
+            // Fix package name
+            String[] packageFieldNames = {"mPackageName", "packageName", "mSourcePackage", "sourcePackage"};
+            
+            for (String fieldName : packageFieldNames) {
+                try {
+                    java.lang.reflect.Field packageField = attributionSourceClass.getDeclaredField(fieldName);
+                    packageField.setAccessible(true);
+                    packageField.set(attributionSource, BlackBoxCore.getHostPkg());
+                    Slog.d(TAG, "Fixed AttributionSource package name via field: " + fieldName);
+                    break;
+                } catch (NoSuchFieldException e) {
+                    // Continue to next field name
+                }
+            }
+            
+        } catch (Exception e) {
+            Slog.w(TAG, "Error fixing AttributionSource UID: " + e.getMessage());
+        }
     }
-// Add inside AttributionSourceUtils class:
 
+    /**
+     * Fix AttributionSource objects in Bundle objects
+     */
+    public static void fixAttributionSourceInBundle(Object bundle) {
+        try {
+            if (bundle == null) return;
+            
+            // Try to get the keySet and iterate through values
+            java.lang.reflect.Method keySetMethod = bundle.getClass().getMethod("keySet");
+            java.util.Set<String> keys = (java.util.Set<String>) keySetMethod.invoke(bundle);
+            
+            for (String key : keys) {
+                try {
+                    java.lang.reflect.Method getMethod = bundle.getClass().getMethod("get", String.class);
+                    Object value = getMethod.invoke(bundle, key);
+                    
+                    if (value != null && value.getClass().getName().contains("AttributionSource")) {
+                        fixAttributionSourceUid(value);
+                        Slog.d(TAG, "Fixed AttributionSource UID in Bundle key: " + key);
+                    }
+                } catch (Exception e) {
+                    // Ignore individual key errors
+                }
+            }
+        } catch (Exception e) {
+            Slog.w(TAG, "Error fixing AttributionSource in Bundle: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Create a safe AttributionSource object
+     */
     public static Object createSafeAttributionSource() {
         try {
-            // Try builder path (Android 12+)
-            Class<?> asClass = Class.forName("android.content.AttributionSource");
-            Class<?> builderClass = Class.forName("android.content.AttributionSource$Builder");
-            java.lang.reflect.Constructor<?> c = builderClass.getDeclaredConstructor(int.class);
-            c.setAccessible(true);
-
-            int uid = android.os.Binder.getCallingUid();
-            if (uid <= 0) uid = android.os.Process.myUid();
-
-            Object builder = c.newInstance(uid);
-
+            // Try to create a safe AttributionSource using reflection
+            Class<?> attributionSourceClass = Class.forName("android.content.AttributionSource");
+            
+            // Try different constructor signatures
+            Object attributionSource = null;
+            
             try {
-                java.lang.reflect.Method setPkg = builderClass.getDeclaredMethod("setPackageName", String.class);
-                setPkg.setAccessible(true);
-                String pkg = top.niunaijun.blackbox.BlackBoxCore.getHostPkg();
-                if (pkg == null || pkg.isEmpty()) pkg = "android";
-                setPkg.invoke(builder, pkg);
-            } catch (Throwable ignored) {}
-
-            java.lang.reflect.Method build = builderClass.getDeclaredMethod("build");
-            build.setAccessible(true);
-            return build.invoke(builder);
-        } catch (Throwable ignore) {
+                // Try constructor with UID and package name
+                java.lang.reflect.Constructor<?> constructor = attributionSourceClass.getDeclaredConstructor(int.class, String.class);
+                constructor.setAccessible(true);
+                attributionSource = constructor.newInstance(BActivityThread.getBUid(), BlackBoxCore.getHostPkg());
+            } catch (Exception e) {
+                try {
+                    // Try default constructor
+                    java.lang.reflect.Constructor<?> constructor = attributionSourceClass.getDeclaredConstructor();
+                    constructor.setAccessible(true);
+                    attributionSource = constructor.newInstance();
+                    
+                    // Set UID and package name using reflection
+                    fixAttributionSourceUid(attributionSource);
+                } catch (Exception e2) {
+                    Slog.w(TAG, "Could not create safe AttributionSource: " + e2.getMessage());
+                    return null;
+                }
+            }
+            
+            return attributionSource;
+        } catch (Exception e) {
+            Slog.w(TAG, "Error creating safe AttributionSource: " + e.getMessage());
             return null;
         }
     }
 
-    public static void fixAttributionSourceUid(Object attributionSource) {
-        if (attributionSource == null) return;
+    /**
+     * Enhanced method to handle AttributionSource validation errors
+     */
+    public static boolean validateAttributionSource(Object attributionSource) {
         try {
-            int uid = android.os.Binder.getCallingUid();
-            if (uid <= 0) uid = android.os.Process.myUid();
-
-            Class<?> c = attributionSource.getClass();
-
-            // common uid fields
-            String[] fields = {"mUid", "uid", "mCallingUid", "callingUid", "mSourceUid", "sourceUid"};
-            for (String f : fields) {
+            if (attributionSource == null) return false;
+            
+            // Check if UID is valid
+            Class<?> attributionSourceClass = attributionSource.getClass();
+            String[] uidFieldNames = {"mUid", "uid", "mCallingUid", "callingUid", "mSourceUid", "sourceUid"};
+            
+            for (String fieldName : uidFieldNames) {
                 try {
-                    java.lang.reflect.Field field = c.getDeclaredField(f);
-                    field.setAccessible(true);
-                    field.setInt(attributionSource, uid);
-                } catch (Throwable ignored) {}
-            }
-
-            // optional setter
-            try {
-                java.lang.reflect.Method m = c.getDeclaredMethod("setUid", int.class);
-                m.setAccessible(true);
-                m.invoke(attributionSource, uid);
-            } catch (Throwable ignored) {}
-        } catch (Throwable ignored) {}
-    }
-
-    public static void fixAttributionSource(Object attributionSource) {
-        if (attributionSource == null) return;
-
-        int safeUid = getSafeUid();
-        String safePkg = getSafePackage();
-
-        Class<?> c = attributionSource.getClass();
-
-        // UID fields
-        String[] uidFields = {
-                "mUid", "uid", "mCallingUid", "callingUid", "mSourceUid", "sourceUid"
-        };
-        for (String f : uidFields) {
-            try {
-                Field field = c.getDeclaredField(f);
-                field.setAccessible(true);
-                field.setInt(attributionSource, safeUid);
-            } catch (Throwable ignored) {}
-        }
-
-        // package fields
-        String[] pkgFields = {
-                "mPackageName", "packageName", "mAttributionTag", "mSourcePackage", "sourcePackage"
-        };
-        for (String f : pkgFields) {
-            try {
-                Field field = c.getDeclaredField(f);
-                field.setAccessible(true);
-                Object old = field.get(attributionSource);
-                if (old instanceof String && (f.equals("mAttributionTag"))) {
-                    // attributionTag can be null safely; don't force host package into tag
-                    continue;
-                }
-                field.set(attributionSource, safePkg);
-            } catch (Throwable ignored) {}
-        }
-
-        // try setter methods too
-        try {
-            Method m = c.getDeclaredMethod("setUid", int.class);
-            m.setAccessible(true);
-            m.invoke(attributionSource, safeUid);
-        } catch (Throwable ignored) {}
-
-        try {
-            Method m = c.getDeclaredMethod("setPackageName", String.class);
-            m.setAccessible(true);
-            m.invoke(attributionSource, safePkg);
-        } catch (Throwable ignored) {}
-
-        // fix "next" chain recursively if present
-        String[] nextFields = {"mNext", "next"};
-        for (String nf : nextFields) {
-            try {
-                Field f = c.getDeclaredField(nf);
-                f.setAccessible(true);
-                Object next = f.get(attributionSource);
-                if (next != null && next.getClass().getName().contains("AttributionSource")) {
-                    fixAttributionSource(next);
-                }
-            } catch (Throwable ignored) {}
-        }
-    }
-
-    private static void fixAttributionSourceInBundle(Bundle b) {
-        if (b == null) return;
-        try {
-            Set<String> keys = b.keySet();
-            for (String k : keys) {
-                Object v = b.get(k);
-                if (v != null && v.getClass().getName().contains("AttributionSource")) {
-                    fixAttributionSource(v);
+                    java.lang.reflect.Field uidField = attributionSourceClass.getDeclaredField(fieldName);
+                    uidField.setAccessible(true);
+                    Object uidValue = uidField.get(attributionSource);
+                    if (uidValue instanceof Integer) {
+                        int uid = (Integer) uidValue;
+                        if (uid > 0) {
+                            Slog.d(TAG, "AttributionSource UID validation passed: " + uid);
+                            return true;
+                        }
+                    }
+                } catch (Exception e) {
+                    // Continue to next field
                 }
             }
-        } catch (Throwable t) {
-            Slog.w(TAG, "fixAttributionSourceInBundle error: " + t.getMessage());
+            
+            // If validation fails, fix the AttributionSource
+            Slog.w(TAG, "AttributionSource validation failed, attempting to fix");
+            fixAttributionSourceUid(attributionSource);
+            return true;
+            
+        } catch (Exception e) {
+            Slog.w(TAG, "Error validating AttributionSource: " + e.getMessage());
+            return false;
         }
     }
 }
