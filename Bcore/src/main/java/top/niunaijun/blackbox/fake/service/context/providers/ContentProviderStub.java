@@ -70,12 +70,13 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
                     // Don't replace system provider authorities
                     if (!isSystemProviderAuthority(strArg)) {
                         // Replace package name with the correct one
-                        args[i] = mAppPkg;
                     }
                 } else if (arg != null && arg.getClass().getName().equals(BRAttributionSource.getRealClass().getName())) {
                     // Fix AttributionSource UID
                     try {
-                        ContextCompat.fixAttributionSourceState(arg, BActivityThread.getBUid());
+						int uid = android.os.Binder.getCallingUid();
+						if (uid <= 0) uid = android.os.Process.myUid();
+						ContextCompat.fixAttributionSourceState(arg, uid);
                     } catch (Exception e) {
                         // If fixing AttributionSource fails, try to create a new one or skip
                         Slog.w(TAG, "Failed to fix AttributionSource, continuing with original");
@@ -105,9 +106,8 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
                 // Handle SecurityException and other UID-related errors
                 Throwable cause = e.getCause();
                 if (isUidMismatchError(cause)) {
-                    Slog.w(TAG, "UID mismatch in ContentProvider call, returning safe default: " + cause.getMessage());
-                    return getSafeDefaultValue(methodName, method.getReturnType());
-                } else if (cause instanceof RuntimeException) {
+                    throw cause;
+				} else if (cause instanceof RuntimeException) {
                     String message = cause.getMessage();
                     if (message != null && (message.contains("uid") || message.contains("permission"))) {
                         Slog.w(TAG, "Permission/UID error in ContentProvider call, returning safe default: " + message);

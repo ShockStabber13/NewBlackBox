@@ -4,25 +4,17 @@ import android.os.IInterface;
 
 import java.lang.reflect.Method;
 
-import black.android.content.BRAttributionSource;
-import top.niunaijun.blackbox.BlackBoxCore;
 import top.niunaijun.blackbox.fake.hook.ClassInvocationStub;
-import top.niunaijun.blackbox.utils.compat.ContextCompat;
 
-/**
- * updated by alex5402 on 4/8/21.
- * * ∧＿∧
- * (`･ω･∥
- * 丶　つ０
- * しーＪ
- * TFNQw5HgWUS33Ke1eNmSFTwoQySGU7XNsK (USDT TRC20)
- */
 public class SystemProviderStub extends ClassInvocationStub implements BContentProvider {
+    public static final String TAG = "SystemProviderStub";
     private IInterface mBase;
+    @SuppressWarnings("unused")
+    private String mAppPkg;
 
-    @Override
-    public IInterface wrapper(IInterface contentProviderProxy, String appPkg) {
+    public IInterface wrapper(final IInterface contentProviderProxy, final String appPkg) {
         mBase = contentProviderProxy;
+        mAppPkg = appPkg;
         injectHook();
         return (IInterface) getProxyInvocation();
     }
@@ -34,17 +26,12 @@ public class SystemProviderStub extends ClassInvocationStub implements BContentP
 
     @Override
     protected void inject(Object baseInvocation, Object proxyInvocation) {
-
+        // no-op
     }
 
     @Override
     protected void onBindMethod() {
-
-    }
-
-    @Override
-    public boolean isBadEnv() {
-        return false;
+        // no-op
     }
 
     @Override
@@ -52,36 +39,16 @@ public class SystemProviderStub extends ClassInvocationStub implements BContentP
         if ("asBinder".equals(method.getName())) {
             return method.invoke(mBase, args);
         }
-        // Don't replace system provider authorities like "settings", "media", etc.
-        if (args != null && args.length > 0) {
-            Object arg = args[0];
-            if (arg instanceof String) {
-                String authority = (String) arg;
-                // Only replace if it's not a system provider authority
-                if (!isSystemProviderAuthority(authority)) {
-                    args[0] = BlackBoxCore.getHostPkg();
-                }
-            } else if (arg != null && arg.getClass().getName().equals(BRAttributionSource.getRealClass().getName())) {
-                ContextCompat.fixAttributionSourceState(arg, BlackBoxCore.getHostUid());
-            }
+        try {
+            return method.invoke(mBase, args);
+        } catch (Throwable e) {
+            Throwable cause = (e.getCause() != null) ? e.getCause() : e;
+            throw cause;
         }
-        return method.invoke(mBase, args);
     }
 
-    private boolean isSystemProviderAuthority(String authority) {
-        if (authority == null) return false;
-        // Common system provider authorities that should not be replaced
-        return authority.equals("settings") || 
-               authority.equals("media") || 
-               authority.equals("downloads") || 
-               authority.equals("contacts") || 
-               authority.equals("call_log") || 
-               authority.equals("telephony") || 
-               authority.equals("calendar") || 
-               authority.equals("browser") || 
-               authority.equals("user_dictionary") || 
-               authority.equals("applications") ||
-               authority.startsWith("com.android.") ||
-               authority.startsWith("android.");
+    @Override
+    public boolean isBadEnv() {
+        return false;
     }
 }

@@ -20,23 +20,21 @@ import black.android.providers.BRSettingsNameValueCacheOreo;
 import black.android.providers.BRSettingsSecure;
 import black.android.providers.BRSettingsSystem;
 import top.niunaijun.blackbox.BlackBoxCore;
-import top.niunaijun.blackbox.app.BActivityThread;
 import top.niunaijun.blackbox.fake.service.context.providers.ContentProviderStub;
 import top.niunaijun.blackbox.fake.service.context.providers.SystemProviderStub;
-import top.niunaijun.blackbox.utils.Slog;
 import top.niunaijun.blackbox.utils.compat.BuildCompat;
 
+/**
+ * updated by alex5402 on 3/31/21.
+ * * ∧＿∧
+ * (`･ω･∥
+ * 丶　つ０
+ * しーＪ
+ * TFNQw5HgWUS33Ke1eNmSFTwoQySGU7XNsK (USDT TRC20)
+ */
 public class ContentProviderDelegate {
     public static final String TAG = "ContentProviderDelegate";
-    private static final Set<String> sInjected = new HashSet<>();
-
-    private static String getProxyPkg() {
-        try {
-            String p = BActivityThread.getAppPackageName();
-            if (p != null && !p.isEmpty()) return p;
-        } catch (Throwable ignored) {}
-        return BlackBoxCore.getHostPkg();
-    }
+    private static Set<String> sInjected = new HashSet<>();
 
     public static void update(Object holder, String auth) {
         IInterface iInterface;
@@ -46,22 +44,19 @@ public class ContentProviderDelegate {
             iInterface = BRIActivityManagerContentProviderHolder.get(holder).provider();
         }
 
-        if (iInterface instanceof Proxy) return;
-
+        if (iInterface instanceof Proxy)
+            return;
         IInterface bContentProvider;
-        String proxyPkg = getProxyPkg();
-
         switch (auth) {
             case "media":
             case "telephony":
             case "settings":
-                bContentProvider = new SystemProviderStub().wrapper(iInterface, proxyPkg);
+                bContentProvider = new SystemProviderStub().wrapper(iInterface, BlackBoxCore.getHostPkg());
                 break;
             default:
-                bContentProvider = new ContentProviderStub().wrapper(iInterface, proxyPkg);
+                bContentProvider = new ContentProviderStub().wrapper(iInterface, BlackBoxCore.getHostPkg());
                 break;
         }
-
         if (BuildCompat.isOreo()) {
             BRContentProviderHolderOreo.get(holder)._set_provider(bContentProvider);
         } else {
@@ -72,49 +67,40 @@ public class ContentProviderDelegate {
     public static void init() {
         clearSettingProvider();
 
-        // Bootstrap provider map, but never let this hard-crash app bind.
-        try {
-            BlackBoxCore.getContext().getContentResolver()
-                    .call(Uri.parse("content://settings"), "", null, null);
-        } catch (Throwable e) {
-            Slog.w(TAG, "settings bootstrap call skipped: " + e.getMessage());
-        }
-
+        BlackBoxCore.getContext().getContentResolver().call(Uri.parse("content://settings"), "", null, null);
         Object activityThread = BlackBoxCore.mainThread();
-        ArrayMap<Object, Object> map =
-                (ArrayMap<Object, Object>) BRActivityThread.get(activityThread).mProviderMap();
-
-        if (map == null) return;
-
-        String proxyPkg = getProxyPkg();
+        ArrayMap<Object, Object> map = (ArrayMap<Object, Object>) BRActivityThread.get(activityThread).mProviderMap();
 
         for (Object value : map.values()) {
             String[] mNames = BRActivityThreadProviderClientRecordP.get(value).mNames();
-            if (mNames == null || mNames.length <= 0) continue;
-
+            if (mNames == null || mNames.length <= 0) {
+                continue;
+            }
             String providerName = mNames[0];
-            if (sInjected.contains(providerName)) continue;
-
-            sInjected.add(providerName);
-            IInterface iInterface = BRActivityThreadProviderClientRecordP.get(value).mProvider();
-            BRActivityThreadProviderClientRecordP.get(value)
-                    ._set_mProvider(new ContentProviderStub().wrapper(iInterface, proxyPkg));
-            BRActivityThreadProviderClientRecordP.get(value)._set_mNames(new String[]{providerName});
+            if (!sInjected.contains(providerName)) {
+                sInjected.add(providerName);
+                final IInterface iInterface = BRActivityThreadProviderClientRecordP.get(value).mProvider();
+                BRActivityThreadProviderClientRecordP.get(value)._set_mProvider(new ContentProviderStub().wrapper(iInterface, BlackBoxCore.getHostPkg()));
+                BRActivityThreadProviderClientRecordP.get(value)._set_mNames(new String[]{providerName});
+            }
         }
     }
 
     public static void clearSettingProvider() {
         Object cache;
         cache = BRSettingsSystem.get().sNameValueCache();
-        if (cache != null) clearContentProvider(cache);
-
+        if (cache != null) {
+            clearContentProvider(cache);
+        }
         cache = BRSettingsSecure.get().sNameValueCache();
-        if (cache != null) clearContentProvider(cache);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                && BRSettingsGlobal.getRealClass() != null) {
+        if (cache != null) {
+            clearContentProvider(cache);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && BRSettingsGlobal.getRealClass() != null) {
             cache = BRSettingsGlobal.get().sNameValueCache();
-            if (cache != null) clearContentProvider(cache);
+            if (cache != null) {
+                clearContentProvider(cache);
+            }
         }
     }
 
