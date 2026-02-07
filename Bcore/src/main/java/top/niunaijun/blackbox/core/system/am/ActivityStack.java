@@ -314,105 +314,80 @@ public class ActivityStack {
     }
 
     private int startActivityInNewTaskLocked(Intent intent, String resolvedType,
-                                         IBinder resultTo, String resultWho, int requestCode, int flags,
-                                         Bundle options, int userId, ActivityInfo activityInfo, int launchMode) {
-    ActivityRecord selfRecord = newActivityRecord(intent, activityInfo, resultTo, userId);
-    Intent shadow = startActivityProcess(userId, intent, activityInfo, selfRecord);
+                                             IBinder resultTo, String resultWho, int requestCode, int flags,
+                                             Bundle options, int userId, ActivityInfo activityInfo, int launchMode) {
+        ActivityRecord selfRecord = newActivityRecord(intent, activityInfo, resultTo, userId);
+        Intent shadow = startActivityProcess(userId, intent, activityInfo, selfRecord);
 
-    if (shadow.getAction() == null) {
-        shadow.setAction("top.niunaijun.blackbox.action.STUB");
-    }
-
-    if (launchMode == ActivityInfo.LAUNCH_SINGLE_TOP) {
-        shadow.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-    } else if (launchMode == ActivityInfo.LAUNCH_SINGLE_TASK) {
-        shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-    } else if (launchMode == ActivityInfo.LAUNCH_SINGLE_INSTANCE) {
-        shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-    }
-
-    // new task path must have NEW_TASK
-    shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-    if (intent != null && intent.getExtras() != null) {
-        try {
-            shadow.putExtras(intent.getExtras());
-        } catch (Throwable ignore) {
-        }
-    }
-
-    IInterface appThread = BRActivityThread.get().getApplicationThread();
-    int result = realStartActivityLocked(
-            appThread,
-            shadow,
-            resolvedType,
-            resultTo,
-            resultWho,
-            requestCode,
-            flags,
-            options
-    );
-
-    if (result != 0) {
-        Slog.e(TAG, "startActivityInNewTaskLocked failed, result=" + result + ", shadow=" + shadow);
-    } else {
-        Slog.d(TAG, "startActivityInNewTaskLocked ok, shadow=" + shadow);
-    }
-    return result;
-}
-
-
-  private int startActivityInSourceTask(Intent intent, String resolvedType,
-                                      IBinder resultTo, String resultWho, int requestCode, int flags,
-                                      Bundle options,
-                                      int userId, ActivityRecord sourceRecord, ActivityInfo activityInfo, int launchMode) {
-    ActivityRecord selfRecord = newActivityRecord(intent, activityInfo, resultTo, userId);
-    Intent shadow = startActivityProcess(userId, intent, activityInfo, selfRecord);
-
-    if (shadow.getAction() == null) {
-        shadow.setAction("top.niunaijun.blackbox.action.STUB");
-    }
-
-    if (launchMode == ActivityInfo.LAUNCH_SINGLE_TOP) {
-        shadow.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-    } else if (launchMode == ActivityInfo.LAUNCH_SINGLE_TASK) {
-        shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-    } else if (launchMode == ActivityInfo.LAUNCH_SINGLE_INSTANCE) {
-        shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-    }
-
-    // Keep caller behavior: only add NEW_TASK if original requested it
-    if (intent != null && (intent.getFlags() & Intent.FLAG_ACTIVITY_NEW_TASK) != 0) {
+        applyLaunchModeFlags(shadow, launchMode);
         shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    }
 
-    if (intent != null && intent.getExtras() != null) {
+        // try AMS path first
+        int startResult = realStartActivityLocked(
+                null,
+                shadow,
+                resolvedType,
+                resultTo,
+                resultWho,
+                requestCode,
+                flags,
+                options
+        );
+        if (startResult == 0) {
+            return 0;
+        }
+
+        // fallback host context start
         try {
-            shadow.putExtras(intent.getExtras());
-        } catch (Throwable ignore) {
+            BlackBoxCore.getContext().startActivity(shadow);
+            Slog.w(TAG, "Fallback host new-task startActivity: " + shadow);
+            return 0;
+        } catch (Throwable e) {
+            Slog.e(TAG, "Fallback host new-task startActivity failed: " + shadow, e);
+            return -1;
         }
     }
 
-    IInterface appThread = BRActivityThread.get().getApplicationThread();
-    int result = realStartActivityLocked(
-            appThread,
-            shadow,
-            resolvedType,
-            resultTo,
-            resultWho,
-            requestCode,
-            flags,
-            options
-    );
+    private int startActivityInSourceTask(Intent intent, String resolvedType,
+                                          IBinder resultTo, String resultWho, int requestCode, int flags,
+                                          Bundle options,
+                                          int userId, ActivityRecord sourceRecord, ActivityInfo activityInfo, int launchMode) {
+        ActivityRecord selfRecord = newActivityRecord(intent, activityInfo, resultTo, userId);
+        Intent shadow = startActivityProcess(userId, intent, activityInfo, selfRecord);
 
-    if (result != 0) {
-        Slog.e(TAG, "startActivityInSourceTask failed, result=" + result + ", shadow=" + shadow);
-    } else {
-        Slog.d(TAG, "startActivityInSourceTask ok, shadow=" + shadow);
+        applyLaunchModeFlags(shadow, launchMode);
+
+        IInterface appThread = null;
+        if (sourceRecord != null && sourceRecord.processRecord != null) {
+            appThread = sourceRecord.processRecord.appThread;
+        }
+
+        // try AMS path first
+        int startResult = realStartActivityLocked(
+                appThread,
+                shadow,
+                resolvedType,
+                resultTo,
+                resultWho,
+                requestCode,
+                flags,
+                options
+        );
+        if (startResult == 0) {
+            return 0;
+        }
+
+        // fallback host context start
+        try {
+            shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            BlackBoxCore.getContext().startActivity(shadow);
+            Slog.w(TAG, "Fallback host source-task startActivity: " + shadow);
+            return 0;
+        } catch (Throwable e) {
+            Slog.e(TAG, "Fallback host source-task startActivity failed: " + shadow, e);
+            return -1;
+        }
     }
-    return result;
-}
-
 
     private int realStartActivityLocked(IInterface appThread, Intent intent, String resolvedType,
                                         IBinder resultTo, String resultWho, int requestCode, int flags,
