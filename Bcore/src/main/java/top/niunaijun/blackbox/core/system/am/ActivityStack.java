@@ -24,7 +24,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 import black.android.app.BRActivityManagerNative;
 import black.android.app.BRIActivityManager;
@@ -123,7 +122,6 @@ public class ActivityStack {
 
         String taskAffinity = ComponentUtils.getTaskAffinity(activityInfo);
 
-        int launchModeFlags = 0;
         boolean singleTop = containsFlag(intent, Intent.FLAG_ACTIVITY_SINGLE_TOP) || activityInfo.launchMode == ActivityInfo.LAUNCH_SINGLE_TOP;
         boolean newTask = containsFlag(intent, Intent.FLAG_ACTIVITY_NEW_TASK);
         boolean clearTop = containsFlag(intent, Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -144,18 +142,26 @@ public class ActivityStack {
                 break;
         }
 
-        // 如果还没有task则新启动一个task
+        // no existing task -> start in new task
         if (taskRecord == null || taskRecord.needNewTask()) {
-            return startActivityInNewTaskLocked(userId, intent, activityInfo, resultTo, launchModeFlags);
+            return startActivityInNewTaskLocked(
+                    intent,
+                    resolvedType,
+                    resultTo,
+                    resultWho,
+                    requestCode,
+                    flags,
+                    options,
+                    userId,
+                    activityInfo,
+                    activityInfo.launchMode
+            );
         }
-        // 移至前台
+
+        // move task front
         mAms.moveTaskToFront(taskRecord.id, 0);
 
-        boolean notStartToFront = false;
-        if (clearTop || singleTop || clearTask) {
-            notStartToFront = true;
-        }
-
+        boolean notStartToFront = clearTop || singleTop || clearTask;
         boolean startTaskToFront = !notStartToFront
                 && ComponentUtils.intentFilterEquals(taskRecord.rootIntent, intent)
                 && taskRecord.rootIntent.getFlags() == intent.getFlags();
@@ -170,7 +176,6 @@ public class ActivityStack {
 
         if (clearTop) {
             if (targetActivityRecord != null) {
-                // 目标栈上面所有activity出栈
                 synchronized (targetActivityRecord.task.activities) {
                     for (int i = targetActivityRecord.task.activities.size() - 1; i >= 0; i--) {
                         ActivityRecord next = targetActivityRecord.task.activities.get(i);
@@ -181,7 +186,6 @@ public class ActivityStack {
                             if (singleTop) {
                                 newIntentRecord = targetActivityRecord;
                             } else {
-                                // clearTop并且不是singleTop，目标也finish，重建。
                                 targetActivityRecord.finished = true;
                             }
                             break;
@@ -198,7 +202,6 @@ public class ActivityStack {
                 synchronized (mLaunchingActivities) {
                     for (ActivityRecord launchingActivity : mLaunchingActivities) {
                         if (!launchingActivity.finished && launchingActivity.component.equals(intent.getComponent())) {
-                            // todo update onNewIntent from intent
                             ignore = true;
                         }
                     }
@@ -212,9 +215,7 @@ public class ActivityStack {
             } else {
                 ActivityRecord record = findActivityRecordByComponentName(userId, ComponentUtils.toComponentName(activityInfo));
                 if (record != null) {
-                    // 需要调用目标onNewIntent
                     newIntentRecord = record;
-                    // 目标栈上面所有activity出栈
                     synchronized (taskRecord.activities) {
                         for (int i = taskRecord.activities.size() - 1; i >= 0; i--) {
                             ActivityRecord next = taskRecord.activities.get(i);
@@ -233,17 +234,14 @@ public class ActivityStack {
             newIntentRecord = topActivityRecord;
         }
 
-        // clearTask finish All
         if (clearTask && newTask) {
             for (ActivityRecord activity : taskRecord.activities) {
                 activity.finished = true;
             }
             finishAllActivity(userId);
         }
-        // Do NOT call finishAllActivity(userId) unless clearTask is true
 
         if (newIntentRecord != null) {
-            // 通知onNewIntent
             deliverNewIntentLocked(newIntentRecord, intent);
             return 0;
         } else if (ignore) {
@@ -261,8 +259,20 @@ public class ActivityStack {
                 resultTo = top.token;
             }
         }
-        return startActivityInSourceTask(intent,
-                resolvedType, resultTo, resultWho, requestCode, flags, options, userId, topActivityRecord, activityInfo, launchModeFlags);
+
+        return startActivityInSourceTask(
+                intent,
+                resolvedType,
+                resultTo,
+                resultWho,
+                requestCode,
+                flags,
+                options,
+                userId,
+                topActivityRecord,
+                activityInfo,
+                activityInfo.launchMode
+        );
     }
 
     private void deliverNewIntentLocked(ActivityRecord activityRecord, Intent intent) {
@@ -273,28 +283,69 @@ public class ActivityStack {
         }
     }
 
-    private Intent startActivityProcess(int userId, Intent intent, ActivityInfo
-            info, ActivityRecord record) {
+    private Intent startActivityProcess(int userId, Intent intent, ActivityInfo info, ActivityRecord record) {
         ProxyActivityRecord stubRecord = new ProxyActivityRecord(userId, info, intent, record);
-        ProcessRecord targetApp = BProcessManagerService.get().startProcessLocked(info.packageName, info.processName, userId, -1, Binder.getCallingPid());
+
+        ProcessRecord targetApp = BProcessManagerService.get().startProcessLocked(
+                info.packageName, info.processName, userId, -1, Binder.getCallingPid());
+
         if (targetApp == null) {
-            throw new RuntimeException("Unable to create process, name:" + info.name);
+            Slog.w(TAG, "startProcessLocked failed once, retrying: " + info.packageName + "/" + info.processName);
+            targetApp = BProcessManagerService.get().startProcessLocked(
+                    info.packageName, info.processName, userId, -1, Binder.getCallingPid());
         }
+
+        if (targetApp == null) {
+            throw new RuntimeException("Unable to create process, name:" + info.name
+                    + ", pkg:" + info.packageName + ", proc:" + info.processName + ", userId:" + userId);
+        }
+
         return getStartStubActivityIntentInner(intent, targetApp.bpid, userId, stubRecord, info);
     }
 
-    private int startActivityInNewTaskLocked(int userId, Intent intent, ActivityInfo
-            activityInfo, IBinder resultTo, int launchMode) {
-        ActivityRecord record = newActivityRecord(intent, activityInfo, resultTo, userId);
-        Intent shadow = startActivityProcess(userId, intent, activityInfo, record);
+    private void applyLaunchModeFlags(Intent shadow, int launchMode) {
+        if (launchMode == ActivityInfo.LAUNCH_SINGLE_TOP) {
+            shadow.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        } else if (launchMode == ActivityInfo.LAUNCH_SINGLE_TASK) {
+            shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        } else if (launchMode == ActivityInfo.LAUNCH_SINGLE_INSTANCE) {
+            shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+        }
+    }
 
-        shadow.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-        shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
+    private int startActivityInNewTaskLocked(Intent intent, String resolvedType,
+                                             IBinder resultTo, String resultWho, int requestCode, int flags,
+                                             Bundle options, int userId, ActivityInfo activityInfo, int launchMode) {
+        ActivityRecord selfRecord = newActivityRecord(intent, activityInfo, resultTo, userId);
+        Intent shadow = startActivityProcess(userId, intent, activityInfo, selfRecord);
+
+        applyLaunchModeFlags(shadow, launchMode);
         shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        shadow.addFlags(launchMode);
 
-        BlackBoxCore.getContext().startActivity(shadow);
-        return 0;
+        // try AMS path first
+        int startResult = realStartActivityLocked(
+                null,
+                shadow,
+                resolvedType,
+                resultTo,
+                resultWho,
+                requestCode,
+                flags,
+                options
+        );
+        if (startResult == 0) {
+            return 0;
+        }
+
+        // fallback host context start
+        try {
+            BlackBoxCore.getContext().startActivity(shadow);
+            Slog.w(TAG, "Fallback host new-task startActivity: " + shadow);
+            return 0;
+        } catch (Throwable e) {
+            Slog.e(TAG, "Fallback host new-task startActivity failed: " + shadow, e);
+            return -1;
+        }
     }
 
     private int startActivityInSourceTask(Intent intent, String resolvedType,
@@ -303,28 +354,70 @@ public class ActivityStack {
                                           int userId, ActivityRecord sourceRecord, ActivityInfo activityInfo, int launchMode) {
         ActivityRecord selfRecord = newActivityRecord(intent, activityInfo, resultTo, userId);
         Intent shadow = startActivityProcess(userId, intent, activityInfo, selfRecord);
-        shadow.setAction(UUID.randomUUID().toString());
-        shadow.addFlags(launchMode);
-        if (resultTo == null) {
-            shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        applyLaunchModeFlags(shadow, launchMode);
+
+        IInterface appThread = null;
+        if (sourceRecord != null && sourceRecord.processRecord != null) {
+            appThread = sourceRecord.processRecord.appThread;
         }
-        return realStartActivityLocked(sourceRecord.processRecord.appThread, shadow, resolvedType, resultTo, resultWho, requestCode, flags, options);
+
+        // try AMS path first
+        int startResult = realStartActivityLocked(
+                appThread,
+                shadow,
+                resolvedType,
+                resultTo,
+                resultWho,
+                requestCode,
+                flags,
+                options
+        );
+        if (startResult == 0) {
+            return 0;
+        }
+
+        // fallback host context start
+        try {
+            shadow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            BlackBoxCore.getContext().startActivity(shadow);
+            Slog.w(TAG, "Fallback host source-task startActivity: " + shadow);
+            return 0;
+        } catch (Throwable e) {
+            Slog.e(TAG, "Fallback host source-task startActivity failed: " + shadow, e);
+            return -1;
+        }
     }
 
     private int realStartActivityLocked(IInterface appThread, Intent intent, String resolvedType,
                                         IBinder resultTo, String resultWho, int requestCode, int flags,
                                         Bundle options) {
         try {
+            if (appThread == null) {
+                return -1;
+            }
+
             flags &= ~ActivityManagerCompat.START_FLAG_DEBUG;
             flags &= ~ActivityManagerCompat.START_FLAG_NATIVE_DEBUGGING;
             flags &= ~ActivityManagerCompat.START_FLAG_TRACK_ALLOCATION;
 
-            BRIActivityManager.get(BRActivityManagerNative.get().getDefault()).startActivity(appThread, BlackBoxCore.getHostPkg(), intent,
-                    resolvedType, resultTo, resultWho, requestCode, flags, null, options);
+            BRIActivityManager.get(BRActivityManagerNative.get().getDefault()).startActivity(
+                    appThread,
+                    BlackBoxCore.getHostPkg(),
+                    intent,
+                    resolvedType,
+                    resultTo,
+                    resultWho,
+                    requestCode,
+                    flags,
+                    null,
+                    options
+            );
+            return 0;
         } catch (Throwable e) {
-            e.printStackTrace();
+            Slog.e(TAG, "realStartActivityLocked failed: " + intent, e);
+            return -1;
         }
-        return 0;
     }
 
     private ActivityRecord getTopActivityRecord() {

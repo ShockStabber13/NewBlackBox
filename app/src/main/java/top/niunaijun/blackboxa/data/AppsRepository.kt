@@ -88,11 +88,19 @@ class AppsRepository {
 
                 for (installedApplication in installedApplications) {
                     try {
-                        val file = File(installedApplication.sourceDir)
+                       val file = File(installedApplication.sourceDir)
 
-                        if ((installedApplication.flags and ApplicationInfo.FLAG_SYSTEM) != 0) continue
+					val flags = installedApplication.flags
+					val pkg = installedApplication.packageName
+					val isSystem = (flags and ApplicationInfo.FLAG_SYSTEM) != 0
+					val isUpdatedSystem = (flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+					val isChrome = pkg == "com.android.chrome"
 
-                        if (!AbiUtils.isSupport(file)) continue
+					// Allow normal user apps, updated-system apps, and Chrome explicitly
+					if (isSystem && !isUpdatedSystem && !isChrome) continue
+
+					if (!AbiUtils.isSupport(file)) continue
+
 
                         // Filter out BlackBox apps to prevent cloning
                         if (BlackBoxCore.get().isBlackBoxApp(installedApplication.packageName)) {
