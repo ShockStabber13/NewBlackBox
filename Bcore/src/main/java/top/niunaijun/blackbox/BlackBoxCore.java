@@ -6,13 +6,11 @@ import android.app.Application;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.VpnService;
@@ -73,6 +71,8 @@ import top.niunaijun.blackbox.utils.SocialMediaAppCrashPrevention;
 import top.niunaijun.blackbox.utils.DexCrashPrevention;
 import top.niunaijun.blackbox.utils.NativeCrashPrevention;
 import top.niunaijun.blackbox.utils.CrashMonitor;
+import android.content.ComponentName;
+import android.content.pm.ResolveInfo;
 import android.content.ComponentName;
 import android.content.pm.ResolveInfo;
 
@@ -1062,11 +1062,7 @@ public class BlackBoxCore extends ClientConfiguration {
     }
 
     public void startActivity(Intent intent, int userId) {
-        if (mClientConfiguration.isEnableLauncherActivity()) {
-            LauncherActivity.launch(intent, userId);
-        } else {
-            getBActivityManager().startActivity(intent, userId);
-        }
+        getBActivityManager().startActivity(intent, userId);
     }
 
     public static BJobManager getBJobManager() {
@@ -1091,7 +1087,6 @@ public class BlackBoxCore extends ClientConfiguration {
 
             Intent launchIntent = getBPackageManager().getLaunchIntentForPackage(packageName, userId);
 
-            // Fallback: resolve MAIN/LAUNCHER manually if PM helper returns null
             if (launchIntent == null) {
                 Slog.w(TAG, "BB_LAUNCH primary launch intent null, trying fallback resolve: pkg="
                         + packageName + ", userId=" + userId);
@@ -1109,7 +1104,6 @@ public class BlackBoxCore extends ClientConfiguration {
                             ri.activityInfo.name
                     ));
                     launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
                     Slog.w(TAG, "BB_LAUNCH fallback resolved: " + launchIntent);
                 }
             }
@@ -1121,14 +1115,18 @@ public class BlackBoxCore extends ClientConfiguration {
             }
 
             Slog.e(TAG, "BB_LAUNCH launching pkg=" + packageName + ", userId=" + userId + ", intent=" + launchIntent);
-            startActivity(launchIntent, userId);
-            Slog.e(TAG, "BB_LAUNCH launch call returned, pkg=" + packageName + ", userId=" + userId);
+
+            // TEMP DEBUG: bypass LauncherActivity wrapper to avoid false-positive success
+            getBActivityManager().startActivity(launchIntent, userId);
+
+            Slog.e(TAG, "BB_LAUNCH startActivity dispatched via BActivityManager, pkg=" + packageName + ", userId=" + userId);
             return true;
         } catch (Throwable e) {
             Slog.e(TAG, "BB_LAUNCH launchApk exception, pkg=" + packageName + ", userId=" + userId, e);
             return false;
         }
     }
+
 
 
     public boolean isInstalled(String packageName, int userId) {

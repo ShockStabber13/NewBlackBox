@@ -26,6 +26,9 @@ import top.niunaijun.blackbox.entity.pm.InstallResult;
 import top.niunaijun.blackbox.entity.pm.InstalledPackage;
 import top.niunaijun.blackbox.utils.TransactionThrottler;
 
+import android.content.pm.PackageManager;
+
+
 /**
  * updated by alex5402 on 4/14/21.
  * * ∧＿∧
@@ -97,41 +100,102 @@ public class BPackageManager extends BlackManager<IBPackageManagerService> {
         return ServiceManager.PACKAGE_MANAGER;
     }
 
-    public Intent getLaunchIntentForPackage(String packageName, int userId) {
-        // If we've had too many failures, try a simple fallback approach
-        if (shouldUseFallbackMode()) {
-            Log.w(TAG, "Using fallback launch intent for " + packageName + " due to service failures");
-            return createFallbackLaunchIntent(packageName);
-        }
-        
-        Intent intentToResolve = new Intent(Intent.ACTION_MAIN);
-        intentToResolve.addCategory(Intent.CATEGORY_INFO);
-        intentToResolve.setPackage(packageName);
-        List<ResolveInfo> ris = queryIntentActivities(intentToResolve,
-                0,
-                intentToResolve.resolveTypeIfNeeded(BlackBoxCore.getContext().getContentResolver()),
-                userId);
+   public Intent getLaunchIntentForPackage(String packageName, int userId) {
+    // Don't short-circuit to host fallback immediately; try virtual PM first with multiple strategies.
+    final int qFlags = PackageManager.MATCH_DEFAULT_ONLY
+            | PackageManager.MATCH_DIRECT_BOOT_AWARE
+            | PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
 
-        // Otherwise, try to find a main launcher activity.
-        if (ris == null || ris.size() <= 0) {
-            // reuse the intent instance
-            intentToResolve.removeCategory(Intent.CATEGORY_INFO);
-            intentToResolve.addCategory(Intent.CATEGORY_LAUNCHER);
-            intentToResolve.setPackage(packageName);
-            ris = queryIntentActivities(intentToResolve,
-                    0,
-                    intentToResolve.resolveTypeIfNeeded(BlackBoxCore.getContext().getContentResolver()),
-                    userId);
-        }
-        if (ris == null || ris.size() <= 0) {
-            return null;
-        }
-        Intent intent = new Intent(intentToResolve);
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        intent.setClassName(ris.get(0).activityInfo.packageName,
-                ris.get(0).activityInfo.name);
-        return intent;
+    // 1) MAIN + INFO
+    Intent intentToResolve = new Intent(Intent.ACTION_MAIN);
+    intentToResolve.addCategory(Intent.CATEGORY_INFO);
+    intentToResolve.setPackage(packageName);
+
+    List<ResolveInfo> ris = queryIntentActivities(
+            intentToResolve,
+            qFlags,
+            intentToResolve.resolveTypeIfNeeded(BlackBoxCore.getContext().getContentResolver()),
+            userId
+    );
+
+    // 2) MAIN + LAUNCHER
+    if (ris == null || ris.isEmpty()) {
+        intentToResolve = new Intent(Intent.ACTION_MAIN);
+        intentToResolve.addCategory(Intent.CATEGORY_LAUNCHER);
+        intentToResolve.setPackage(packageName);
+        ris = queryIntentActivities(
+                intentToResolve,
+                qFlags,
+                intentToResolve.resolveTypeIfNeeded(BlackBoxCore.getContext().getContentResolver()),
+                userId
+        );
     }
+
+    // 3) MAIN + LEANBACK_LAUNCHER (some apps/devices)
+    if (ris == null || ris.isEmpty()) {
+        intentToResolve = new Intent(Intent.ACTION_MAIN);
+        intentToResolve.addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+        intentToResolve.setPackage(packageName);
+        ris = queryIntentActivities(
+                intentToResolve,
+                qFlags,
+                intentToResolve.resolveTypeIfNeeded(BlackBoxCore.getContext().getContentResolver()),
+                userId
+        );
+    }
+
+    // 4) Explicit resolveActivity as fallback
+    if (ris == null || ris.isEmpty()) {
+        Intent resolveIntent = new Intent(Intent.ACTION_MAIN);
+        resolveIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+        resolveIntent.setPackage(packageName);
+
+        ResolveInfo ri = resolveActivity(
+                resolveIntent,
+                qFlags,
+                resolveIntent.resolveTypeIfNeeded(BlackBoxCore.getContext().getContentResolver()),
+                userId
+        );
+
+        if (ri != null && ri.activityInfo != null) {
+            Intent out = new Intent(Intent.ACTION_MAIN);
+            out.addCategory(Intent.CATEGORY_LAUNCHER);
+            out.setComponent(new ComponentName(ri.activityInfo.packageName, ri.activityInfo.name));
+            out.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Log.e(TAG, "BB_LAUNCH getLaunchIntentForPackage resolved via resolveActivity: "
+                    + ri.activityInfo.packageName + "/" + ri.activityInfo.name + " user=" + userId);
+            return out;
+        }
+    }
+
+    if (ris != null && !ris.isEmpty() && ris.get(0).activityInfo != null) {
+        ResolveInfo ri = ris.get(0);
+        Intent out = new Intent(Intent.ACTION_MAIN);
+        out.addCategory(Intent.CATEGORY_LAUNCHER);
+        out.setComponent(new ComponentName(ri.activityInfo.packageName, ri.activityInfo.name));
+        out.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Log.e(TAG, "BB_LAUNCH getLaunchIntentForPackage resolved via query: "
+                + ri.activityInfo.packageName + "/" + ri.activityInfo.name + " user=" + userId
+                + " count=" + ris.size());
+        return out;
+    }
+
+    // 5) Last resort: host PM launch intent (keeps UX alive; may still fail in virtual if not actually installed there)
+    try {
+        Intent hostIntent = BlackBoxCore.getContext().getPackageManager().getLaunchIntentForPackage(packageName);
+        if (hostIntent != null) {
+            hostIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Log.w(TAG, "BB_LAUNCH using host fallback launch intent for pkg=" + packageName + ", user=" + userId);
+            return hostIntent;
+        }
+    } catch (Throwable t) {
+        Log.w(TAG, "BB_LAUNCH host fallback failed for pkg=" + packageName + ", user=" + userId, t);
+    }
+
+    Log.e(TAG, "BB_LAUNCH getLaunchIntentForPackage failed: pkg=" + packageName + ", user=" + userId);
+    return null;
+}
+
     
     /**
      * Create a simple fallback launch intent when the service is unavailable
