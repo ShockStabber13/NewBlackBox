@@ -50,6 +50,8 @@ class AppsFragment : Fragment() {
 
     private var popupMenu: PopupMenu? = null
 
+    private var lastLaunchPackage: String? = null
+
     companion object {
         private const val TAG = "AppsFragment"
         
@@ -152,13 +154,19 @@ class AppsFragment : Fragment() {
 
             mAdapter.setItemClickListener { _, data, _ ->
                 try {
+                    lastLaunchPackage = data.packageName
+                    Log.e(TAG, "BB_LAUNCH click: pkg=${data.packageName}, user=$userID")
                     showLoading()
                     viewModel.launchApk(data.packageName, userID)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error launching app: ${e.message}")
+                    Log.e(TAG, "BB_LAUNCH exception before launch: pkg=${data.packageName}, user=$userID", e)
                     hideLoading()
+                    toast("${getString(R.string.start_fail)}: ${data.packageName}")
                 }
             }
+
+
+
 
             interceptTouch()
             setOnLongClick()
@@ -406,18 +414,22 @@ class AppsFragment : Fragment() {
                 }
             }
 
-            viewModel.launchLiveData.observe(viewLifecycleOwner) {
+            viewModel.launchLiveData.observe(viewLifecycleOwner) { ok ->
                 try {
-                    it?.run {
-                        hideLoading()
-                        if (!it) {
-                            toast(R.string.start_fail)
-                        }
+                    hideLoading()
+                    if (ok == false) {
+                        val pkg = lastLaunchPackage ?: "unknown"
+                        Log.e(TAG, "BB_LAUNCH failed: pkg=$pkg, user=$userID")
+                        toast("${getString(R.string.start_fail)}: $pkg")
+                    } else if (ok == true) {
+                        val pkg = lastLaunchPackage ?: "unknown"
+                        Log.e(TAG, "BB_LAUNCH success: pkg=$pkg, user=$userID")
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error observing launch data: ${e.message}")
+                    Log.e(TAG, "BB_LAUNCH observer error", e)
                 }
             }
+
 
             viewModel.updateSortLiveData.observe(viewLifecycleOwner) {
                 try {
@@ -438,6 +450,8 @@ class AppsFragment : Fragment() {
             super.onStop()
             viewModel.resultLiveData.value = null
             viewModel.launchLiveData.value = null
+            lastLaunchPackage = null
+
         } catch (e: Exception) {
             Log.e(TAG, "Error in onStop: ${e.message}")
         }
