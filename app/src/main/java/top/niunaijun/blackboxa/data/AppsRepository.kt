@@ -418,13 +418,16 @@ class AppsRepository {
 
     fun launchApk(packageName: String, userId: Int, launchLiveData: MutableLiveData<Boolean>) {
         try {
+            Log.e(TAG, "BB_LAUNCH repo launch start pkg=$packageName user=$userId")
             val result = BlackBoxCore.get().launchApk(packageName, userId)
+            Log.e(TAG, "BB_LAUNCH repo launch result pkg=$packageName user=$userId result=$result")
             launchLiveData.postValue(result)
         } catch (e: Exception) {
-            Log.e(TAG, "Error launching APK: ${e.message}")
+            Log.e(TAG, "BB_LAUNCH repo launch exception pkg=$packageName user=$userId", e)
             launchLiveData.postValue(false)
         }
     }
+
 
     fun clearApkData(packageName: String, userID: Int, resultLiveData: MutableLiveData<String>) {
         try {

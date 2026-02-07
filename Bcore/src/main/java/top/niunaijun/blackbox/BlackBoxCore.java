@@ -6,11 +6,13 @@ import android.app.Application;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.VpnService;
@@ -71,6 +73,8 @@ import top.niunaijun.blackbox.utils.SocialMediaAppCrashPrevention;
 import top.niunaijun.blackbox.utils.DexCrashPrevention;
 import top.niunaijun.blackbox.utils.NativeCrashPrevention;
 import top.niunaijun.blackbox.utils.CrashMonitor;
+import android.content.ComponentName;
+import android.content.pm.ResolveInfo;
 
 
 
@@ -1082,15 +1086,51 @@ public class BlackBoxCore extends ClientConfiguration {
     }
 
     public boolean launchApk(String packageName, int userId) {
-        onBeforeMainLaunchApk(packageName,userId);
+        try {
+            onBeforeMainLaunchApk(packageName, userId);
 
-        Intent launchIntentForPackage = getBPackageManager().getLaunchIntentForPackage(packageName, userId);
-        if (launchIntentForPackage == null) {
+            Intent launchIntent = getBPackageManager().getLaunchIntentForPackage(packageName, userId);
+
+            // Fallback: resolve MAIN/LAUNCHER manually if PM helper returns null
+            if (launchIntent == null) {
+                Slog.w(TAG, "BB_LAUNCH primary launch intent null, trying fallback resolve: pkg="
+                        + packageName + ", userId=" + userId);
+
+                Intent query = new Intent(Intent.ACTION_MAIN);
+                query.addCategory(Intent.CATEGORY_LAUNCHER);
+                query.setPackage(packageName);
+
+                ResolveInfo ri = getBPackageManager().resolveActivity(query, 0, null, userId);
+                if (ri != null && ri.activityInfo != null) {
+                    launchIntent = new Intent(Intent.ACTION_MAIN);
+                    launchIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+                    launchIntent.setComponent(new ComponentName(
+                            ri.activityInfo.packageName,
+                            ri.activityInfo.name
+                    ));
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+                    Slog.w(TAG, "BB_LAUNCH fallback resolved: " + launchIntent);
+                }
+            }
+
+            if (launchIntent == null) {
+                Slog.e(TAG, "BB_LAUNCH launch intent still null after fallback, pkg="
+                        + packageName + ", userId=" + userId);
+                return false;
+            }
+
+            Slog.e(TAG, "BB_LAUNCH launching pkg=" + packageName + ", userId=" + userId + ", intent=" + launchIntent);
+            startActivity(launchIntent, userId);
+            Slog.e(TAG, "BB_LAUNCH launch call returned, pkg=" + packageName + ", userId=" + userId);
+            return true;
+        } catch (Throwable e) {
+            Slog.e(TAG, "BB_LAUNCH launchApk exception, pkg=" + packageName + ", userId=" + userId, e);
             return false;
         }
-        startActivity(launchIntentForPackage, userId);
-        return true;
     }
+
+
     public boolean isInstalled(String packageName, int userId) {
         return getBPackageManager().isInstalled(packageName, userId);
     }
