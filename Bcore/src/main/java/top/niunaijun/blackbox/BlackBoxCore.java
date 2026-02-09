@@ -96,29 +96,22 @@ public class BlackBoxCore extends ClientConfiguration {
     private static final BlackBoxCore sBlackBoxCore = new BlackBoxCore();
     private static Context sContext;
 
-    // Static initializer to install the simple fix at class loading time
+    // Static initializer to install only minimal-safe fixes at class loading time
     static {
         try {
-            // Install Pine anti-detection hooks as early as possible
+            // Keep only the least invasive, process-safe hooks here.
             SimpleCrashFix.installSimpleFix();
             Slog.d(TAG, "Simple crash fix installed at class loading time");
-            // Install stack trace filter for anti-detection
+
             StackTraceFilter.install();
             Slog.d(TAG, "Stack trace filter installed at class loading time");
-            // Install social media app crash prevention
-            SocialMediaAppCrashPrevention.initialize();
-            Slog.d(TAG, "Social media app crash prevention initialized at class loading time");
-            // Install DEX crash prevention
-            DexCrashPrevention.initialize();
-            Slog.d(TAG, "DEX crash prevention initialized at class loading time");
-            // Install native crash prevention
-            NativeCrashPrevention.initialize();
-            Slog.d(TAG, "Native crash prevention initialized at class loading time");
-            // Install comprehensive crash monitoring
-            CrashMonitor.initialize();
-            Slog.d(TAG, "Comprehensive crash monitoring initialized at class loading time");
+
+            // IMPORTANT:
+            // Do NOT install aggressive/global crash-prevention layers at class-load time.
+            // They can interfere with Chromium/Trichrome native startup (ICU FD handoff).
+            Slog.w(TAG, "Aggressive crash prevention is disabled at class loading time for compatibility");
         } catch (Exception e) {
-            Slog.w(TAG, "Failed to install simple crash fix or stack trace filter at class loading: " + e.getMessage());
+            Slog.w(TAG, "Failed to install class-loading crash fixes: " + e.getMessage());
         }
     }
     private ProcessType mProcessType;
