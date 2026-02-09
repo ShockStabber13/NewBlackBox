@@ -107,7 +107,9 @@ public class HookManager {
             addInjector(new ITelephonyRegistryProxy());
             addInjector(new IDevicePolicyManagerProxy());
             addInjector(new IAccountManagerProxy());
-            addInjector(new IConnectivityManagerProxy());
+            // Disabled: custom connectivity hook was returning synthetic network objects and
+            // breaks networking for some apps (Amazon/YouTube/Prime) in this fork.
+            // addInjector(new IConnectivityManagerProxy());
             addInjector(new IPhoneSubInfoProxy());
             addInjector(new IMediaRouterServiceProxy());
             addInjector(new IPowerManagerProxy());
@@ -115,10 +117,10 @@ public class HookManager {
             addInjector(new IPersistentDataBlockServiceProxy());
             addInjector(AppInstrumentation.get());
             /*
-            * It takes time to test and enhance the compatibility of WifiManager
-            * (only tested in Android 10).
-            * commented by BlackBoxing at 2022/03/08
-            * */
+             * It takes time to test and enhance the compatibility of WifiManager
+             * (only tested in Android 10).
+             * commented by BlackBoxing at 2022/03/08
+             * */
             addInjector(new IWifiManagerProxy());
             addInjector(new IWifiScannerProxy());
             // 12.0
@@ -210,9 +212,9 @@ public class HookManager {
 
         // Special handling for critical hooks that could cause crashes
         if (hookName.contains("ActivityManager") ||
-            hookName.contains("PackageManager") ||
-            hookName.contains("WebView") ||
-            hookName.contains("ContentProvider")) {
+                hookName.contains("PackageManager") ||
+                hookName.contains("WebView") ||
+                hookName.contains("ContentProvider")) {
 
             Slog.w(TAG, "Critical hook failed: " + hookName + ", attempting recovery");
 
@@ -233,10 +235,10 @@ public class HookManager {
      */
     public boolean areCriticalHooksInstalled() {
         String[] criticalHooks = {
-            "IActivityManagerProxy",
-            "IPackageManagerProxy",
-            "WebViewProxy",
-            "IContentProviderProxy"
+                "IActivityManagerProxy",
+                "IPackageManagerProxy",
+                "WebViewProxy",
+                "IContentProviderProxy"
         };
 
         for (String hookName : criticalHooks) {

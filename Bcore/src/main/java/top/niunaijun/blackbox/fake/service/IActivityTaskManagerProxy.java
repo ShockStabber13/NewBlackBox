@@ -13,6 +13,7 @@ import top.niunaijun.blackbox.fake.hook.MethodHook;
 import top.niunaijun.blackbox.fake.hook.ProxyMethod;
 import top.niunaijun.blackbox.fake.hook.ScanClass;
 import top.niunaijun.blackbox.utils.compat.TaskDescriptionCompat;
+import top.niunaijun.blackbox.utils.Slog;
 
 /**
  * updated by alex5402 on 3/31/21.
@@ -58,4 +59,40 @@ public class IActivityTaskManagerProxy extends BinderInvocationStub {
             return method.invoke(who, args);
         }
     }
+
+
+    @ProxyMethod("registerScreenCaptureObserver")
+    public static class RegisterScreenCaptureObserver extends MethodHook {
+        @Override
+        protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            try {
+                return method.invoke(who, args);
+            } catch (Throwable e) {
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                if (cause instanceof SecurityException) {
+                    Slog.w(TAG, "Bypassing registerScreenCaptureObserver SecurityException: " + cause.getMessage());
+                    return null;
+                }
+                throw cause;
+            }
+        }
+    }
+
+    @ProxyMethod("unregisterScreenCaptureObserver")
+    public static class UnregisterScreenCaptureObserver extends MethodHook {
+        @Override
+        protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            try {
+                return method.invoke(who, args);
+            } catch (Throwable e) {
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                if (cause instanceof SecurityException) {
+                    Slog.w(TAG, "Bypassing unregisterScreenCaptureObserver SecurityException: " + cause.getMessage());
+                    return null;
+                }
+                throw cause;
+            }
+        }
+    }
+
 }
