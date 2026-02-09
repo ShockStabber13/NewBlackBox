@@ -117,21 +117,45 @@ public class IActivityManagerProxy extends ClassInvocationStub {
     public static class GetContentProvider extends MethodHook {
         @Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            Object result;
             try {
-                // Try to use the original method first
-                Object result = method.invoke(who, args);
-                if (result != null) {
-                    return result;
-                }
+                result = method.invoke(who, args);
+            } catch (Throwable e) {
+                Throwable cause = e.getCause();
+                throw cause != null ? cause : e;
+            }
 
-                // If original method fails, return null to prevent crashes
-                Slog.w(TAG, "getContentProvider failed, returning null to prevent crash");
-                return null;
-
-            } catch (Exception e) {
-                Slog.w(TAG, "Error in getContentProvider, returning null: " + e.getMessage());
+            if (result == null) {
                 return null;
             }
+
+            // Find the real authority from args (ignore callingPackage strings)
+            String auth = null;
+            if (args != null) {
+                for (Object arg : args) {
+                    if (!(arg instanceof String)) continue;
+                    String s = (String) arg;
+                    if (s == null || s.length() == 0) continue;
+                    try {
+                        ProviderInfo pi = BPackageManager.get().resolveContentProvider(s, 0, BActivityThread.getUserId());
+                        if (pi != null) {
+                            auth = s;
+                            break;
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+
+            if (auth != null) {
+                try {
+                    ContentProviderDelegate.update(result, auth);
+                } catch (Throwable t) {
+                    Slog.w(TAG, "getContentProvider: delegate update failed for auth=" + auth + ", err=" + t.getMessage());
+                }
+            }
+
+            return result;
         }
     }
 

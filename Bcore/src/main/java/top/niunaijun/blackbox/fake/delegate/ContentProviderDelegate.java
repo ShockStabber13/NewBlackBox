@@ -3,6 +3,7 @@ package top.niunaijun.blackbox.fake.delegate;
 import android.net.Uri;
 import android.os.Build;
 import android.os.IInterface;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 
 import java.lang.reflect.Proxy;
@@ -20,6 +21,7 @@ import black.android.providers.BRSettingsNameValueCacheOreo;
 import black.android.providers.BRSettingsSecure;
 import black.android.providers.BRSettingsSystem;
 import top.niunaijun.blackbox.BlackBoxCore;
+import top.niunaijun.blackbox.app.BActivityThread;
 import top.niunaijun.blackbox.fake.service.context.providers.ContentProviderStub;
 import top.niunaijun.blackbox.fake.service.context.providers.SystemProviderStub;
 import top.niunaijun.blackbox.utils.compat.BuildCompat;
@@ -34,7 +36,19 @@ import top.niunaijun.blackbox.utils.compat.BuildCompat;
  */
 public class ContentProviderDelegate {
     public static final String TAG = "ContentProviderDelegate";
+    private static final String AMAZON_MAPINFO_PREFIX = "com.amazon.identity.auth.device.MapInfoProvider";
     private static Set<String> sInjected = new HashSet<>();
+
+    private static String resolveWrapperPkg(String auth) {
+        String wrapperPkg = BlackBoxCore.getHostPkg();
+        if (auth != null && auth.startsWith(AMAZON_MAPINFO_PREFIX)) {
+            String appPkg = BActivityThread.getAppPackageName();
+            if (!TextUtils.isEmpty(appPkg)) {
+                wrapperPkg = appPkg;
+            }
+        }
+        return wrapperPkg;
+    }
 
     public static void update(Object holder, String auth) {
         IInterface iInterface;
@@ -46,15 +60,17 @@ public class ContentProviderDelegate {
 
         if (iInterface instanceof Proxy)
             return;
+
+        final String wrapperPkg = resolveWrapperPkg(auth);
         IInterface bContentProvider;
         switch (auth) {
             case "media":
             case "telephony":
             case "settings":
-                bContentProvider = new SystemProviderStub().wrapper(iInterface, BlackBoxCore.getHostPkg());
+                bContentProvider = new SystemProviderStub().wrapper(iInterface, wrapperPkg);
                 break;
             default:
-                bContentProvider = new ContentProviderStub().wrapper(iInterface, BlackBoxCore.getHostPkg());
+                bContentProvider = new ContentProviderStub().wrapper(iInterface, wrapperPkg);
                 break;
         }
         if (BuildCompat.isOreo()) {
@@ -80,7 +96,9 @@ public class ContentProviderDelegate {
             if (!sInjected.contains(providerName)) {
                 sInjected.add(providerName);
                 final IInterface iInterface = BRActivityThreadProviderClientRecordP.get(value).mProvider();
-                BRActivityThreadProviderClientRecordP.get(value)._set_mProvider(new ContentProviderStub().wrapper(iInterface, BlackBoxCore.getHostPkg()));
+                BRActivityThreadProviderClientRecordP.get(value)._set_mProvider(
+                        new ContentProviderStub().wrapper(iInterface, resolveWrapperPkg(providerName))
+                );
                 BRActivityThreadProviderClientRecordP.get(value)._set_mNames(new String[]{providerName});
             }
         }

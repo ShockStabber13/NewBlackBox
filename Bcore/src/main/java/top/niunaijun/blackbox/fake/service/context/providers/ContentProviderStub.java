@@ -1,15 +1,18 @@
 package top.niunaijun.blackbox.fake.service.context.providers;
 
+import android.net.Uri;
+import android.os.Bundle;
 import android.os.IInterface;
+import android.text.TextUtils;
 
 import java.lang.reflect.Method;
 
 import black.android.content.BRAttributionSource;
+import top.niunaijun.blackbox.BlackBoxCore;
 import top.niunaijun.blackbox.app.BActivityThread;
 import top.niunaijun.blackbox.fake.hook.ClassInvocationStub;
-import top.niunaijun.blackbox.utils.compat.ContextCompat;
 import top.niunaijun.blackbox.utils.Slog;
-import android.os.Bundle;
+import top.niunaijun.blackbox.utils.compat.ContextCompat;
 
 /**
  * updated by alex5402 on 4/8/21.
@@ -21,6 +24,8 @@ import android.os.Bundle;
  */
 public class ContentProviderStub extends ClassInvocationStub implements BContentProvider {
     public static final String TAG = "ContentProviderStub";
+    private static final String AMAZON_MAPINFO_PREFIX = "com.amazon.identity.auth.device.MapInfoProvider";
+
     private IInterface mBase;
     private String mAppPkg;
 
@@ -52,6 +57,16 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
             return method.invoke(mBase, args);
         }
 
+        final String methodName = method.getName();
+        final String authority = extractAuthority(args);
+        final boolean amazonMapInfo = isAmazonMapInfoAuthority(authority);
+
+        // Amazon MapInfo provider is signature/uid sensitive.
+        // Ensure we do NOT send host identity for this provider.
+        if (amazonMapInfo) {
+            rewriteAmazonIdentityArgs(args);
+        }
+
         // Fix AttributionSource and package name issues
         if (args != null && args.length > 0) {
             for (int i = 0; i < args.length; i++) {
@@ -69,14 +84,18 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
 
                     // Don't replace system provider authorities
                     if (!isSystemProviderAuthority(strArg)) {
-                        // Replace package name with the correct one
+                        // keep original behavior for non-amazon paths
                     }
                 } else if (arg != null && arg.getClass().getName().equals(BRAttributionSource.getRealClass().getName())) {
                     // Fix AttributionSource UID
                     try {
-						int uid = android.os.Binder.getCallingUid();
-						if (uid <= 0) uid = android.os.Process.myUid();
-						ContextCompat.fixAttributionSourceState(arg, uid);
+                        if (amazonMapInfo) {
+                            fixAttributionSourceUid(arg);
+                        } else {
+                            int uid = android.os.Binder.getCallingUid();
+                            if (uid <= 0) uid = android.os.Process.myUid();
+                            ContextCompat.fixAttributionSourceState(arg, uid);
+                        }
                     } catch (Exception e) {
                         // If fixing AttributionSource fails, try to create a new one or skip
                         Slog.w(TAG, "Failed to fix AttributionSource, continuing with original");
@@ -94,7 +113,6 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
         }
 
         // Pre-validate the call to prevent system-level SecurityException
-        String methodName = method.getName();
         if (methodName.equals("query") || methodName.equals("insert") ||
                 methodName.equals("update") || methodName.equals("delete") ||
                 methodName.equals("bulkInsert") || methodName.equals("call")) {
@@ -106,8 +124,13 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
                 // Handle SecurityException and other UID-related errors
                 Throwable cause = e.getCause();
                 if (isUidMismatchError(cause)) {
+                    if (amazonMapInfo) {
+                        // For Amazon MapInfo, do NOT mask with fake defaults.
+                        // Let the caller receive the real exception if rewrite wasn't enough.
+                        throw (cause != null ? cause : e);
+                    }
                     throw cause;
-				} else if (cause instanceof RuntimeException) {
+                } else if (cause instanceof RuntimeException) {
                     String message = cause.getMessage();
                     if (message != null && (message.contains("uid") || message.contains("permission"))) {
                         Slog.w(TAG, "Permission/UID error in ContentProvider call, returning safe default: " + message);
@@ -121,7 +144,7 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
                     return getSafeDefaultValue(methodName, method.getReturnType());
                 }
 
-                throw e.getCause();
+                throw (cause != null ? cause : e);
             }
         }
 
@@ -132,10 +155,85 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
             // Handle SecurityException for UID mismatch in any method
             Throwable cause = e.getCause();
             if (isUidMismatchError(cause)) {
+                if (amazonMapInfo) {
+                    throw (cause != null ? cause : e);
+                }
                 Slog.w(TAG, "UID mismatch in " + methodName + ", returning safe default: " + cause.getMessage());
                 return getSafeDefaultValue(methodName, method.getReturnType());
             }
-            throw e.getCause();
+            throw (cause != null ? cause : e);
+        }
+    }
+
+    private String extractAuthority(Object[] args) {
+        if (args == null) return null;
+        for (Object arg : args) {
+            if (arg instanceof Uri) {
+                return ((Uri) arg).getAuthority();
+            }
+            if (arg instanceof String) {
+                String s = (String) arg;
+                if (s.startsWith("content://")) {
+                    try {
+                        return Uri.parse(s).getAuthority();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean isAmazonMapInfoAuthority(String authority) {
+        return authority != null && authority.startsWith(AMAZON_MAPINFO_PREFIX);
+    }
+
+    private String getBestAppPkg() {
+        String appPkg = BActivityThread.getAppPackageName();
+        if (TextUtils.isEmpty(appPkg)) {
+            appPkg = mAppPkg;
+        }
+        return appPkg;
+    }
+
+    private void rewriteAmazonIdentityArgs(Object[] args) {
+        if (args == null) return;
+
+        String hostPkg = BlackBoxCore.getHostPkg();
+        String appPkg = getBestAppPkg();
+        if (TextUtils.isEmpty(hostPkg) || TextUtils.isEmpty(appPkg)) {
+            return;
+        }
+
+        for (int i = 0; i < args.length; i++) {
+            Object arg = args[i];
+            if (arg instanceof String) {
+                if (hostPkg.equals(arg)) {
+                    args[i] = appPkg;
+                }
+            } else if (arg instanceof Bundle) {
+                rewriteBundleHostPkg((Bundle) arg, hostPkg, appPkg);
+            } else if (arg != null && arg.getClass().getName().contains("AttributionSource")) {
+                fixAttributionSourceUid(arg);
+            }
+        }
+    }
+
+    private void rewriteBundleHostPkg(Bundle b, String hostPkg, String appPkg) {
+        if (b == null) return;
+        final String[] keys = new String[] {
+                "calling_package",
+                "callingPackage",
+                "caller_package"
+        };
+        for (String k : keys) {
+            try {
+                String value = b.getString(k);
+                if (hostPkg.equals(value)) {
+                    b.putString(k, appPkg);
+                }
+            } catch (Throwable ignored) {
+            }
         }
     }
 
@@ -191,7 +289,9 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
                 message.contains("uid") &&
                         message.contains("permission") ||
                 message.contains("SecurityException") ||
-                message.contains("UID mismatch");
+                message.contains("UID mismatch") ||
+                message.contains("signed with a different cert") ||
+                message.contains("Unauthorized caller");
     }
 
     /**
@@ -229,26 +329,30 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
             if (attributionSource == null) return;
 
             Class<?> attributionSourceClass = attributionSource.getClass();
+            final int effectiveUid = android.os.Process.myUid() > 0
+                    ? android.os.Process.myUid()
+                    : BActivityThread.getBUid();
+            final String appPkg = getBestAppPkg();
 
             // Try to find and set the UID field
             try {
                 java.lang.reflect.Field uidField = attributionSourceClass.getDeclaredField("mUid");
                 uidField.setAccessible(true);
-                uidField.set(attributionSource, BActivityThread.getBUid());
+                uidField.set(attributionSource, effectiveUid);
                 Slog.d(TAG, "Fixed AttributionSource UID via field access");
             } catch (NoSuchFieldException e) {
                 // Try alternative field names
                 try {
                     java.lang.reflect.Field uidField = attributionSourceClass.getDeclaredField("uid");
                     uidField.setAccessible(true);
-                    uidField.set(attributionSource, BActivityThread.getBUid());
+                    uidField.set(attributionSource, effectiveUid);
                     Slog.d(TAG, "Fixed AttributionSource UID via alternative field");
                 } catch (NoSuchFieldException e2) {
                     // Try using setter method
                     try {
                         java.lang.reflect.Method setUidMethod = attributionSourceClass.getDeclaredMethod("setUid", int.class);
                         setUidMethod.setAccessible(true);
-                        setUidMethod.invoke(attributionSource, BActivityThread.getBUid());
+                        setUidMethod.invoke(attributionSource, effectiveUid);
                         Slog.d(TAG, "Fixed AttributionSource UID via setter method");
                     } catch (Exception e3) {
                         Slog.w(TAG, "Could not fix AttributionSource UID: " + e3.getMessage());
@@ -257,13 +361,15 @@ public class ContentProviderStub extends ClassInvocationStub implements BContent
             }
 
             // Also try to fix package name
-            try {
-                java.lang.reflect.Field packageField = attributionSourceClass.getDeclaredField("mPackageName");
-                packageField.setAccessible(true);
-                packageField.set(attributionSource, mAppPkg);
-                Slog.d(TAG, "Fixed AttributionSource package name");
-            } catch (Exception e) {
-                // Ignore package name fixing errors
+            if (!TextUtils.isEmpty(appPkg)) {
+                try {
+                    java.lang.reflect.Field packageField = attributionSourceClass.getDeclaredField("mPackageName");
+                    packageField.setAccessible(true);
+                    packageField.set(attributionSource, appPkg);
+                    Slog.d(TAG, "Fixed AttributionSource package name");
+                } catch (Exception e) {
+                    // Ignore package name fixing errors
+                }
             }
 
         } catch (Exception e) {
